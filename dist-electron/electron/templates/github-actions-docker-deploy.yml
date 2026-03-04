@@ -1,0 +1,466 @@
+name: Docker Deploy - {{APP_NAME}}
+
+concurrency:
+  group: server-compass-docker-{{APP_NAME}}-{{BRANCH}}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: [{{BRANCH}}]
+  workflow_dispatch:
+    inputs:
+      deploy_only:
+        description: 'Skip build job and run deploy only (use existing GHCR image tag)'
+        required: false
+        default: 'false'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.deploy_only != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value={{IMAGE_TAG}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: {{DOCKERFILE_PATH}}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            SERVER_COMPASS_NEXT_PUBLIC_ENV_B64=${{ secrets.ENV_NEXT_PUBLIC_B64_{{APP_NAME_UPPER}} }}
+
+  deploy:
+    needs: build
+    if: ${{ always() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST_{{APP_NAME_UPPER}} }}
+          username: ${{ secrets.VPS_USER_{{APP_NAME_UPPER}} }}
+          key: ${{ secrets.VPS_SSH_KEY_{{APP_NAME_UPPER}} }}
+          port: ${{ secrets.VPS_PORT_{{APP_NAME_UPPER}} }}
+          script: |
+            set -e
+            echo "🚀 Starting Docker deployment for {{APP_NAME}}..."
+
+            # Ensure Docker is available and restart if using systemd
+            echo "🐳 Checking Docker installation..."
+            if command -v docker &> /dev/null; then
+              echo "✅ Docker is installed"
+
+              # Restart Docker daemon only if it's managed by systemd
+              if systemctl is-active --quiet docker 2>/dev/null; then
+                echo "🔄 Restarting Docker daemon to ensure iptables chains are initialized..."
+                sudo systemctl restart docker
+                sleep 3
+              elif systemctl is-enabled --quiet docker 2>/dev/null; then
+                echo "🔄 Starting Docker daemon..."
+                sudo systemctl start docker
+                sleep 3
+              else
+                echo "ℹ️  Docker is not managed by systemd, skipping restart"
+              fi
+
+              # Verify Docker is running
+              if ! docker info &> /dev/null; then
+                echo "❌ Docker is not running. Please install and start Docker on this server."
+                exit 1
+              fi
+
+              # Clean up orphaned networks that might cause iptables conflicts
+              echo "🧹 Cleaning up orphaned Docker networks..."
+              docker network prune -f || true
+            else
+              echo "⚠️  Docker is not installed. Installing Docker automatically..."
+
+              # Install Docker using official installation script
+              echo "📦 Downloading Docker installation script..."
+              curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+
+              echo "🔧 Installing Docker..."
+              sudo sh /tmp/get-docker.sh
+
+              # Clean up installation script
+              rm -f /tmp/get-docker.sh
+
+              # Start Docker service
+              echo "🚀 Starting Docker service..."
+              sudo systemctl start docker
+              sudo systemctl enable docker
+
+              # Wait for Docker to start
+              sleep 5
+
+              # Verify installation
+              if command -v docker &> /dev/null && docker info &> /dev/null; then
+                echo "✅ Docker installed and running successfully"
+
+                # Display installed version
+                docker --version
+                docker compose version
+              else
+                echo "❌ Docker installation failed. Please check the logs above."
+                exit 1
+              fi
+            fi
+
+            # Navigate to app directory and ensure it exists
+            mkdir -p {{WORKING_DIRECTORY}}
+            cd {{WORKING_DIRECTORY}}
+
+            # Preserve existing Traefik labels and networks before regenerating docker-compose.yml
+            # This ensures domain configurations added via ServerCompass UI are not lost on redeploy
+            EXISTING_LABELS=""
+            EXISTING_NETWORKS=""
+            if [ -f docker-compose.yml ]; then
+              echo "📋 Preserving existing Traefik configuration..."
+              # Extract labels section (everything between 'labels:' and next top-level key or end of service)
+              # Pattern handles both quoted and unquoted labels: `- traefik.` or `- "traefik.`
+              EXISTING_LABELS=$(awk '
+                /^[[:space:]]+labels:/ { in_labels=1; next }
+                in_labels && /^[[:space:]]+-[[:space:]]+"?traefik\./ { print; next }
+                in_labels && /^[[:space:]]+[a-z]/ { in_labels=0 }
+              ' docker-compose.yml)
+
+              # Extract networks section for the service (traefik-public reference)
+              if grep -q "traefik-public" docker-compose.yml; then
+                EXISTING_NETWORKS="yes"
+                echo "  ✓ Found traefik-public network configuration"
+              fi
+
+              if [ -n "$EXISTING_LABELS" ]; then
+                echo "  ✓ Found $(echo "$EXISTING_LABELS" | wc -l | tr -d ' ') Traefik labels to preserve"
+              fi
+            fi
+
+            # Generate docker-compose.yml with preserved Traefik configuration
+            echo "📝 Creating docker-compose.yml..."
+            {
+              printf '%s\n' \
+                'services:' \
+                '  {{APP_NAME}}:' \
+                '    image: ghcr.io/${{ github.repository }}:{{IMAGE_TAG}}' \
+                '    container_name: {{APP_NAME}}-app' \
+                '    ports:' \
+                '      - "{{PORT}}:{{CONTAINER_PORT}}"' \
+                '    environment:' \
+                '      PORT: "${PORT:-{{CONTAINER_PORT}}}"' \
+                '    env_file:' \
+                '      - .env' \
+                '    restart: unless-stopped'
+
+              # Re-add preserved Traefik labels
+              if [ -n "$EXISTING_LABELS" ]; then
+                echo "    labels:"
+                echo "$EXISTING_LABELS"
+              fi
+
+              # Re-add networks if traefik-public was configured
+              if [ "$EXISTING_NETWORKS" = "yes" ]; then
+                printf '%s\n' \
+                  '    networks:' \
+                  '      - default' \
+                  '      - traefik-public' \
+                  'networks:' \
+                  '  traefik-public:' \
+                  '    external: true'
+              fi
+            } > docker-compose.yml
+
+            # Create .env (prefer Server Compass-managed secret; fallback to existing server file)
+            if [ -n "${{ secrets.ENV_FILE_{{APP_NAME_UPPER}} }}" ]; then
+              echo "🧩 Writing .env from GitHub secret (ENV_FILE_{{APP_NAME_UPPER}})..."
+            cat > .env << 'SERVER_COMPASS_ENV_FILE'
+            ${{ secrets.ENV_FILE_{{APP_NAME_UPPER}} }}
+            SERVER_COMPASS_ENV_FILE
+            elif [ -f .env ]; then
+              echo "🧩 No env secret found. Keeping existing .env from server."
+            else
+              echo "🧩 No env secret found and .env is missing. Creating empty .env..."
+              touch .env
+            fi
+
+            # Lightweight sanity check (count only; never print values)
+            ENV_VAR_COUNT=$(grep -Ec '^[A-Za-z_][A-Za-z0-9_]*=' .env 2>/dev/null || true)
+            echo "🧩 .env variables loaded: ${ENV_VAR_COUNT}"
+
+            # Log in to GHCR
+            echo "🔐 Logging in to GitHub Container Registry..."
+            echo ${{ secrets.GHCR_TOKEN_{{APP_NAME_UPPER}} }} | docker login ghcr.io -u ${{ secrets.GHCR_USER_{{APP_NAME_UPPER}} }} --password-stdin
+
+            # Pull latest images
+            echo "📥 Pulling latest Docker images..."
+            docker compose pull
+
+            # Check if zero-downtime deployment is possible (Traefik labels configured)
+            HAS_TRAEFIK_LABELS="no"
+            if [ -n "$EXISTING_LABELS" ] && [ "$EXISTING_NETWORKS" = "yes" ]; then
+              HAS_TRAEFIK_LABELS="yes"
+              echo "🔄 Zero-downtime deployment enabled (Traefik labels detected)"
+            fi
+
+            # Read Docker container health without relying on app image tooling (nc/curl/wget).
+            # Some production images are minimal and don't include those binaries.
+            get_container_health_status() {
+              docker inspect "$1" --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' 2>/dev/null || echo "unknown"
+            }
+
+            if [ "$HAS_TRAEFIK_LABELS" = "yes" ]; then
+              # ========================================
+              # ZERO-DOWNTIME BLUE-GREEN DEPLOYMENT
+              # ========================================
+              echo "🔵🟢 Starting zero-downtime blue-green deployment..."
+
+              PRIMARY_PROJECT="{{APP_NAME}}"
+              STAGING_PROJECT="{{APP_NAME}}-staging"
+              STAGING_DIR="{{WORKING_DIRECTORY}}-staging"
+              APP_PORT="{{CONTAINER_PORT}}"
+
+              # Step 1: Clean up any orphaned staging from previous failed deploy
+              echo "🧹 Cleaning up orphaned staging..."
+              if [ -d "$STAGING_DIR" ]; then
+                cd "$STAGING_DIR" && docker compose -p "$STAGING_PROJECT" down --remove-orphans 2>/dev/null || true
+                rm -rf "$STAGING_DIR"
+              fi
+              cd {{WORKING_DIRECTORY}}
+
+              # Step 2: Create staging directory with same compose file
+              echo "📁 Preparing staging environment..."
+              mkdir -p "$STAGING_DIR"
+              cp docker-compose.yml "$STAGING_DIR/"
+              cp .env "$STAGING_DIR/" 2>/dev/null || touch "$STAGING_DIR/.env"
+
+              # Step 3: Modify staging compose for blue-green deployment
+              # - Use different container name
+              # - Remove host port binding (staging only needs Docker network access for Traefik)
+              # - Keep traefik-public network for Traefik routing
+              sed -i "s/container_name: {{APP_NAME}}-app/container_name: {{APP_NAME}}-staging-app/" "$STAGING_DIR/docker-compose.yml"
+              # Remove host port binding to avoid port conflict with primary
+              # Change `ports:` to `expose:` and remove host port mapping (e.g., "3000:3000" -> "3000")
+              sed -i 's/^[[:space:]]*ports:/    expose:/' "$STAGING_DIR/docker-compose.yml"
+              sed -i 's/"\([0-9]*\):\([0-9]*\)"/"\2"/' "$STAGING_DIR/docker-compose.yml"
+              # Also handle non-quoted format: 3000:3000 -> 3000
+              sed -i 's/- \([0-9]*\):\([0-9]*\)$/- \2/' "$STAGING_DIR/docker-compose.yml"
+
+              # Step 4: Start staging containers (PRIMARY STILL SERVING TRAFFIC)
+              echo "🚀 Starting staging containers while primary serves traffic..."
+              cd "$STAGING_DIR"
+              docker compose -p "$STAGING_PROJECT" up -d
+
+              # Step 5: Wait for staging to be ready
+              echo "⏳ Waiting for staging container to be ready (port $APP_PORT)..."
+              STAGING_READY="no"
+              for i in $(seq 1 30); do
+                CONTAINER_STATE=$(docker inspect "{{APP_NAME}}-staging-app" --format='{{.State.Status}}' 2>/dev/null || echo "notfound")
+                HEALTH_STATUS=$(get_container_health_status "{{APP_NAME}}-staging-app")
+
+                if [ "$CONTAINER_STATE" = "running" ]; then
+                  if [ "$HEALTH_STATUS" = "healthy" ]; then
+                    STAGING_READY="yes"
+                    echo "  ✓ Staging container healthy after ${i}s"
+                    break
+                  elif [ "$HEALTH_STATUS" = "none" ] && [ "$i" -ge 5 ]; then
+                    # No Docker HEALTHCHECK configured. Treat stable running container as ready.
+                    STAGING_READY="yes"
+                    echo "  ✓ Staging container running (no healthcheck) after ${i}s"
+                    break
+                  elif [ "$HEALTH_STATUS" = "unhealthy" ]; then
+                    echo "  ✗ Staging container reported unhealthy!"
+                    docker logs "{{APP_NAME}}-staging-app" --tail 20 2>&1 || true
+                    break
+                  fi
+                elif [ "$CONTAINER_STATE" = "exited" ] || [ "$CONTAINER_STATE" = "dead" ]; then
+                  echo "  ✗ Staging container crashed!"
+                  docker logs "{{APP_NAME}}-staging-app" --tail 20 2>&1 || true
+                  break
+                fi
+                echo "  ... waiting (${i}/30s) - state: $CONTAINER_STATE, health: $HEALTH_STATUS"
+                sleep 1
+              done
+
+              if [ "$STAGING_READY" = "yes" ]; then
+                # Step 6: Create Traefik dynamic config to route traffic to staging
+                echo "🔀 Switching Traefik traffic to staging..."
+
+                # Extract domain from Traefik labels (portable: avoid grep -P dependency).
+                # Prefer a non-www host first so the main domain is switched.
+                DOMAIN=$(printf '%s\n' "$EXISTING_LABELS" | awk '
+                  match($0, /Host\(`[^`]+`\)/) {
+                    candidate = substr($0, RSTART + 6, RLENGTH - 8)
+                    if (first == "") first = candidate
+                    if (candidate !~ /^www\./) { print candidate; found = 1; exit }
+                  }
+                  END {
+                    if (!found && first != "") print first
+                  }
+                ' | head -1)
+                if [ -n "$DOMAIN" ]; then
+                  # Create Traefik file provider config for traffic switch
+                  TRAEFIK_DYNAMIC_DIR="/opt/traefik/dynamic"
+                  mkdir -p "$TRAEFIK_DYNAMIC_DIR"
+
+                  cat > "$TRAEFIK_DYNAMIC_DIR/{{APP_NAME}}-switch.yml" << TRAEFIKEOF
+            http:
+              services:
+                {{APP_NAME}}-staging:
+                  loadBalancer:
+                    servers:
+                      - url: "http://{{APP_NAME}}-staging-app:$APP_PORT"
+              routers:
+                {{APP_NAME}}-switch:
+                  rule: "Host(\`$DOMAIN\`)"
+                  service: "{{APP_NAME}}-staging"
+                  entryPoints:
+                    - websecure
+                  tls:
+                    certResolver: letsencrypt
+            TRAEFIKEOF
+
+                  echo "  ✓ Traffic switched to staging via Traefik file provider"
+                  sleep 2  # Give Traefik time to pick up the config
+
+                  # Step 7: Post-switch verification (5 probes over 15 seconds)
+                  echo "🔍 Verifying staging is healthy after traffic switch..."
+                  VERIFICATION_PASSED="yes"
+                  CONSECUTIVE_FAILURES=0
+                  for probe in $(seq 1 5); do
+                    sleep 3
+                    PROBE_STATE=$(docker inspect "{{APP_NAME}}-staging-app" --format='{{.State.Status}}' 2>/dev/null || echo "notfound")
+                    PROBE_HEALTH=$(get_container_health_status "{{APP_NAME}}-staging-app")
+                    if [ "$PROBE_STATE" = "running" ] && { [ "$PROBE_HEALTH" = "healthy" ] || [ "$PROBE_HEALTH" = "none" ]; }; then
+                      echo "  ✓ Probe $probe/5: OK (state=$PROBE_STATE, health=$PROBE_HEALTH)"
+                      CONSECUTIVE_FAILURES=0
+                    elif [ "$PROBE_STATE" = "running" ] && [ "$PROBE_HEALTH" = "starting" ]; then
+                      echo "  ... Probe $probe/5: STARTING (state=$PROBE_STATE, health=$PROBE_HEALTH)"
+                    else
+                      echo "  ✗ Probe $probe/5: FAILED (state=$PROBE_STATE, health=$PROBE_HEALTH)"
+                      CONSECUTIVE_FAILURES=$((CONSECUTIVE_FAILURES + 1))
+                      if [ $CONSECUTIVE_FAILURES -ge 2 ]; then
+                        VERIFICATION_PASSED="no"
+                        break
+                      fi
+                    fi
+                  done
+
+                  if [ "$VERIFICATION_PASSED" = "yes" ]; then
+                    # Step 8: Verification passed - stop primary and promote staging
+                    echo "✅ Verification passed! Promoting staging to primary..."
+
+                    # Stop primary
+                    cd {{WORKING_DIRECTORY}}
+                    docker compose -p "$PRIMARY_PROJECT" down || true
+
+                    # Stop staging
+                    cd "$STAGING_DIR"
+                    docker compose -p "$STAGING_PROJECT" down || true
+
+                    # Start as primary
+                    cd {{WORKING_DIRECTORY}}
+                    docker compose -p "$PRIMARY_PROJECT" up -d
+
+                    # Remove Traefik switch config (back to label-based routing)
+                    rm -f "$TRAEFIK_DYNAMIC_DIR/{{APP_NAME}}-switch.yml"
+
+                    # Cleanup staging directory
+                    rm -rf "$STAGING_DIR"
+
+                    echo "🎉 Zero-downtime deployment completed successfully!"
+                  else
+                    # Step 8b: Verification failed - rollback to primary
+                    echo "❌ Verification failed! Rolling back to primary..."
+
+                    # Remove Traefik switch config (traffic goes back to primary via labels)
+                    rm -f "$TRAEFIK_DYNAMIC_DIR/{{APP_NAME}}-switch.yml"
+
+                    # Stop staging
+                    cd "$STAGING_DIR"
+                    docker compose -p "$STAGING_PROJECT" down --remove-orphans || true
+                    rm -rf "$STAGING_DIR"
+
+                    echo "⚠️ Rollback complete - primary is still running (no downtime occurred)"
+                    exit 1
+                  fi
+                else
+                  echo "⚠️ Could not extract domain from Traefik labels, falling back to standard deployment"
+                  # Cleanup staging
+                  cd "$STAGING_DIR" && docker compose -p "$STAGING_PROJECT" down --remove-orphans 2>/dev/null || true
+                  rm -rf "$STAGING_DIR"
+                  cd {{WORKING_DIRECTORY}}
+                  # Fall through to standard deployment
+                  HAS_TRAEFIK_LABELS="no"
+                fi
+              else
+                # Staging failed to start - cleanup and exit
+                echo "❌ Staging container failed to become ready"
+                cd "$STAGING_DIR" && docker compose -p "$STAGING_PROJECT" down --remove-orphans 2>/dev/null || true
+                rm -rf "$STAGING_DIR"
+                echo "⚠️ Primary is still running (no changes made)"
+                exit 1
+              fi
+            fi
+
+            # Standard deployment (no Traefik or fallback)
+            if [ "$HAS_TRAEFIK_LABELS" != "yes" ]; then
+              echo "🚀 Starting standard deployment..."
+
+              # Stop and remove old containers
+              echo "🛑 Stopping old containers..."
+              docker compose down
+
+              # Start new containers
+              echo "🚀 Starting new containers..."
+              docker compose up -d
+            fi
+
+            # Cleanup old images
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+
+            echo "✅ Deployment completed successfully at $(date)"
+            echo "📊 Container Status:"
+            docker compose ps
+
+            # Check if any containers are unhealthy/restarting and show logs
+            echo ""
+            echo "🔍 Checking container health..."
+            UNHEALTHY=$(docker compose ps --format json 2>/dev/null | jq -r 'select(.State != "running") | .Name' 2>/dev/null || docker compose ps | grep -E "Restarting|Exited" | awk '{print $1}')
+            if [ -n "$UNHEALTHY" ]; then
+              echo "⚠️ Warning: Some containers may be unhealthy"
+              for container in $UNHEALTHY; do
+                echo ""
+                echo "📋 Logs for $container:"
+                docker logs "$container" --tail 30 2>&1 || true
+              done
+            else
+              echo "✅ All containers are running"
+            fi

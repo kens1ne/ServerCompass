@@ -1,0 +1,1217 @@
+{
+  "parentCategory": "database",
+  "templates": [
+    {
+      "id": "builtin-supabase",
+      "subCategory": "sql",
+      "name": "Supabase (Lite)",
+      "description": "Supabase with PostgreSQL, REST API, and Studio UI - simplified for easy deployment",
+      "category": "database",
+      "dbClassification": "relational",
+      "icon": "🔥",
+      "minMemoryMB": 2048,
+      "recommendedPort": 3000,
+      "compose": "services:\n  db:\n    image: postgres:16-alpine\n    ports:\n      - \"{{DB_PORT}}:5432\"\n    environment:\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - POSTGRES_USER=postgres\n      - POSTGRES_DB=postgres\n    volumes:\n      - db_data:/var/lib/postgresql/data\n      - ./init-supabase-roles.sql:/docker-entrypoint-initdb.d/01-init-roles.sql\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d postgres\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 60s\n\n  rest:\n    image: postgrest/postgrest:v12.2.0\n    ports:\n      - \"{{REST_PORT}}:3000\"\n    environment:\n      - PGRST_DB_URI=postgres://authenticator:{{POSTGRES_PASSWORD}}@db:5432/postgres\n      - PGRST_DB_SCHEMAS=public,storage,graphql_public\n      - PGRST_DB_ANON_ROLE=anon\n      - PGRST_JWT_SECRET={{JWT_SECRET}}\n      - PGRST_DB_USE_LEGACY_GUCS=false\n    depends_on:\n      db:\n        condition: service_healthy\n    restart: unless-stopped\n\n  meta:\n    image: supabase/postgres-meta:v0.83.2\n    ports:\n      - \"{{META_PORT}}:8080\"\n    environment:\n      - PG_META_PORT=8080\n      - PG_META_DB_HOST=db\n      - PG_META_DB_PORT=5432\n      - PG_META_DB_NAME=postgres\n      - PG_META_DB_USER=postgres\n      - PG_META_DB_PASSWORD={{POSTGRES_PASSWORD}}\n    depends_on:\n      db:\n        condition: service_healthy\n    restart: unless-stopped\n\n  studio:\n    image: supabase/studio:20240729-ce42139\n    ports:\n      - \"{{STUDIO_PORT}}:3000\"\n    environment:\n      - STUDIO_PG_META_URL=http://meta:8080\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - DEFAULT_ORGANIZATION_NAME=Default Organization\n      - DEFAULT_PROJECT_NAME=Default Project\n      - SUPABASE_URL=http://rest:3000\n      - SUPABASE_PUBLIC_URL=http://localhost:{{REST_PORT}}\n      - NEXT_PUBLIC_ENABLE_LOGS=true\n    depends_on:\n      - meta\n      - rest\n    restart: unless-stopped\n\nvolumes:\n  db_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "POSTGRES_PASSWORD",
+          "description": "PostgreSQL password (use only letters and numbers)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "JWT_SECRET",
+          "description": "JWT secret for API authentication (min 32 characters)",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "DB_PORT",
+          "description": "PostgreSQL port",
+          "default": "5432"
+        },
+        {
+          "name": "REST_PORT",
+          "description": "PostgREST API port",
+          "default": "3001"
+        },
+        {
+          "name": "META_PORT",
+          "description": "Postgres Meta port",
+          "default": "8080"
+        },
+        {
+          "name": "STUDIO_PORT",
+          "description": "Supabase Studio port",
+          "default": "3000"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "JWT secret (min 32 chars)",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Supabase\n\n## On your VPS\n\n1. Allow the required ports through firewall:\n```bash\nsudo ufw allow {{DB_PORT}}/tcp     # PostgreSQL\nsudo ufw allow {{REST_PORT}}/tcp   # REST API\nsudo ufw allow {{STUDIO_PORT}}/tcp # Supabase Studio\nsudo ufw reload\n```\n\n## Access Supabase\n\n- Studio UI: http://YOUR_SERVER_IP:{{STUDIO_PORT}}\n- REST API: http://YOUR_SERVER_IP:{{REST_PORT}}\n- PostgreSQL: YOUR_SERVER_IP:{{DB_PORT}}\n\n## Note\n\nThis is a simplified Supabase setup without Auth, Realtime, or Storage services. For full Supabase features, use the official self-hosted guide at https://supabase.com/docs/guides/self-hosting/docker",
+      "securityNotes": "- Use strong passwords with only letters and numbers (no special characters)\n- JWT_SECRET must be at least 32 characters\n- Restrict database port access to trusted IPs only\n- Enable SSL/TLS for production via reverse proxy\n- This is a lite version - for production use official Supabase self-hosting",
+      "postDeploymentSteps": "1. Access Supabase Studio at http://YOUR_SERVER_IP:{{STUDIO_PORT}}\n2. Create database tables using the SQL editor\n3. Set up Row Level Security (RLS) policies\n4. Use the REST API at http://YOUR_SERVER_IP:{{REST_PORT}}\n5. For full features (Auth, Realtime, Storage), follow official docs"
+    },
+    {
+      "id": "builtin-postgres",
+      "subCategory": "sql",
+      "name": "PostgreSQL",
+      "description": "PostgreSQL database with persistent storage",
+      "category": "database",
+      "dbClassification": "relational",
+      "icon": "🐘",
+      "minMemoryMB": 256,
+      "recommendedPort": 5432,
+      "compose": "services:\n  postgres:\n    image: postgres:16-alpine\n    ports:\n      - \"{{PORT}}:5432\"\n    environment:\n      - POSTGRES_USER={{POSTGRES_USER}}\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - POSTGRES_DB={{POSTGRES_DB}}\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{POSTGRES_USER}} -d {{POSTGRES_DB}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "POSTGRES_USER",
+          "description": "PostgreSQL username",
+          "required": true,
+          "default": "postgres",
+          "type": "string"
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "description": "PostgreSQL password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "POSTGRES_DB",
+          "description": "Database name",
+          "required": true,
+          "default": "app",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "5432"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "description": "Database username",
+          "default": "postgres"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "POSTGRES_DB",
+          "description": "Database name",
+          "default": "app"
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to PostgreSQL\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n2. Verify the port is open:\n```bash\nsudo ufw status | grep {{PORT}}\n```\n\n## From your local machine\n\nConnect using psql:\n```bash\npsql -h YOUR_SERVER_IP -p {{PORT}} -U {{POSTGRES_USER}} -d {{POSTGRES_DB}}\n```\n\nOr use a connection string:\n```\npostgresql://{{POSTGRES_USER}}:{{POSTGRES_PASSWORD}}@YOUR_SERVER_IP:{{PORT}}/{{POSTGRES_DB}}\n```",
+      "securityNotes": "- Change the default password immediately after deployment\n- Consider using SSL/TLS for production databases\n- Restrict access to specific IP addresses using UFW or cloud security groups\n- Regularly backup your database\n- Keep PostgreSQL updated to the latest version\n- Use strong passwords with mixed characters",
+      "postDeploymentSteps": "1. Test the database connection\n2. Create additional users if needed\n3. Configure backup schedules\n4. Set up monitoring and alerts\n5. Review and optimize PostgreSQL configuration for your workload\n6. Consider setting up replication for high availability"
+    },
+    {
+      "id": "builtin-mysql",
+      "subCategory": "sql",
+      "name": "MySQL",
+      "description": "MySQL database with persistent storage",
+      "category": "database",
+      "dbClassification": "relational",
+      "icon": "🐬",
+      "minMemoryMB": 512,
+      "recommendedPort": 3306,
+      "compose": "services:\n  mysql:\n    image: mysql:8\n    ports:\n      - \"{{PORT}}:3306\"\n    environment:\n      - MYSQL_ROOT_PASSWORD={{MYSQL_ROOT_PASSWORD}}\n      - MYSQL_DATABASE={{MYSQL_DATABASE}}\n      - MYSQL_USER={{MYSQL_USER}}\n      - MYSQL_PASSWORD={{MYSQL_PASSWORD}}\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD || exit 1\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  mysql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "MYSQL_ROOT_PASSWORD",
+          "description": "MySQL root password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "MYSQL_DATABASE",
+          "description": "Database name",
+          "required": true,
+          "default": "app",
+          "type": "string"
+        },
+        {
+          "key": "MYSQL_USER",
+          "description": "MySQL username",
+          "required": true,
+          "default": "app",
+          "type": "string"
+        },
+        {
+          "key": "MYSQL_PASSWORD",
+          "description": "MySQL user password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "3306"
+        },
+        {
+          "name": "MYSQL_ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        },
+        {
+          "name": "MYSQL_DATABASE",
+          "description": "Database name",
+          "default": "app"
+        },
+        {
+          "name": "MYSQL_USER",
+          "description": "Database username",
+          "default": "app"
+        },
+        {
+          "name": "MYSQL_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to MySQL\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n2. Verify the port is open:\n```bash\nsudo ufw status | grep {{PORT}}\n```\n\n## From your local machine\n\nConnect using MySQL client:\n```bash\nmysql -h YOUR_SERVER_IP -P {{PORT}} -u {{MYSQL_USER}} -p{{MYSQL_PASSWORD}} {{MYSQL_DATABASE}}\n```\n\nOr use a connection string:\n```\nmysql://{{MYSQL_USER}}:{{MYSQL_PASSWORD}}@YOUR_SERVER_IP:{{PORT}}/{{MYSQL_DATABASE}}\n```",
+      "securityNotes": "- Use strong passwords for root and user accounts\n- Disable remote root login in production\n- Restrict access to specific IP addresses\n- Enable SSL/TLS for remote connections\n- Regularly update MySQL to the latest version\n- Set up automated backups",
+      "postDeploymentSteps": "1. Test database connection\n2. Create additional users with specific privileges\n3. Configure automated backup scripts\n4. Set up monitoring and alerts\n5. Optimize MySQL configuration for your workload\n6. Review and apply security best practices"
+    },
+    {
+      "id": "builtin-redis",
+      "subCategory": "nosql",
+      "name": "Redis",
+      "description": "Redis cache with optional persistence",
+      "category": "database",
+      "icon": "🔴",
+      "minMemoryMB": 64,
+      "recommendedPort": 6379,
+      "compose": "services:\n  redis:\n    image: redis:7-alpine\n    ports:\n      - \"{{PORT}}:6379\"\n    volumes:\n      - redis_data:/data\n    command: redis-server --appendonly yes\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"redis-cli\", \"ping\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  redis_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "6379"
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Redis\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n2. Verify the port is open:\n```bash\nsudo ufw status | grep {{PORT}}\n```\n\n## From your local machine\n\nConnect using redis-cli:\n```bash\nredis-cli -h YOUR_SERVER_IP -p {{PORT}}\n```\n\nOr use a connection string:\n```\nredis://YOUR_SERVER_IP:{{PORT}}\n```",
+      "securityNotes": "- WARNING: This configuration has NO password protection\n- Add password protection with requirepass in redis.conf\n- Use bind directive to restrict connections to specific IPs\n- Enable SSL/TLS for production environments\n- Disable dangerous commands in production\n- Keep Redis updated to the latest version",
+      "postDeploymentSteps": "1. Test Redis connection\n2. Configure password authentication (strongly recommended)\n3. Set up persistence configuration (RDB/AOF)\n4. Configure maxmemory and eviction policies\n5. Set up monitoring and alerts\n6. Consider setting up Redis Sentinel for high availability"
+    },
+    {
+      "id": "builtin-surrealdb",
+      "subCategory": "nosql",
+      "name": "SurrealDB",
+      "description": "Multi-model database for real-time applications with SQL-style queries, graph relations, and full-text search",
+      "category": "database",
+      "icon": "🟣",
+      "minMemoryMB": 256,
+      "recommendedPort": 8000,
+      "compose": "services:\n  surrealdb:\n    image: surrealdb/surrealdb:latest\n    user: root\n    ports:\n      - \"{{PORT}}:8000\"\n    volumes:\n      - surrealdb_data:/data\n    command: start --username {{SURREAL_USER}} --password {{SURREAL_PASS}} surrealkv:/data/database.db\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"surreal\", \"isready\", \"--endpoint\", \"http://localhost:8000\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  surrealdb_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SURREAL_USER",
+          "description": "SurrealDB root username",
+          "required": true,
+          "default": "root",
+          "type": "string"
+        },
+        {
+          "key": "SURREAL_PASS",
+          "description": "SurrealDB root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "8000"
+        },
+        {
+          "name": "SURREAL_USER",
+          "description": "Root username",
+          "default": "root"
+        },
+        {
+          "name": "SURREAL_PASS",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to SurrealDB\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n2. Verify the port is open:\n```bash\nsudo ufw status | grep {{PORT}}\n```\n\n## From your local machine\n\nConnect using the SurrealDB CLI:\n```bash\nsurreal sql --endpoint http://YOUR_SERVER_IP:{{PORT}} --username {{SURREAL_USER}} --password {{SURREAL_PASS}} --namespace test --database test\n```\n\nOr use a WebSocket connection string:\n```\nws://YOUR_SERVER_IP:{{PORT}}/rpc\n```",
+      "securityNotes": "- Change the default root password immediately after deployment\n- Consider using SSL/TLS for production databases via reverse proxy\n- Restrict access to specific IP addresses using UFW or cloud security groups\n- Create namespace/database-scoped users instead of using root for applications\n- Keep SurrealDB updated to the latest version\n- Use strong passwords with mixed characters",
+      "postDeploymentSteps": "1. Test database connection using surreal sql CLI\n2. Create namespaces and databases for your applications\n3. Define schemas with DEFINE TABLE and DEFINE FIELD\n4. Create scoped users with limited permissions\n5. Set up monitoring and alerts\n6. Configure backup schedules for the data volume"
+    },
+    {
+      "id": "builtin-mongodb",
+      "subCategory": "nosql",
+      "name": "MongoDB",
+      "description": "Document-oriented NoSQL database for modern applications",
+      "category": "database",
+      "dbClassification": "nosql",
+      "icon": "🍃",
+      "minMemoryMB": 512,
+      "recommendedPort": 27017,
+      "compose": "services:\n  mongodb:\n    image: mongo:7\n    ports:\n      - \"{{PORT}}:27017\"\n    environment:\n      - MONGO_INITDB_ROOT_USERNAME={{MONGO_USER}}\n      - MONGO_INITDB_ROOT_PASSWORD={{MONGO_PASSWORD}}\n      - MONGO_INITDB_DATABASE={{MONGO_DATABASE}}\n    volumes:\n      - mongodb_data:/data/db\n      - mongodb_config:/data/configdb\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"mongosh\", \"--eval\", \"db.adminCommand('ping')\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n\nvolumes:\n  mongodb_data:\n  mongodb_config:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "MONGO_USER",
+          "description": "MongoDB root username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "MONGO_PASSWORD",
+          "description": "MongoDB root password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "MONGO_DATABASE",
+          "description": "Initial database name",
+          "required": true,
+          "default": "app",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "27017"
+        },
+        {
+          "name": "MONGO_USER",
+          "description": "Root username",
+          "default": "admin"
+        },
+        {
+          "name": "MONGO_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        },
+        {
+          "name": "MONGO_DATABASE",
+          "description": "Initial database name",
+          "default": "app"
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to MongoDB\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## From your local machine\n\nConnect using mongosh:\n```bash\nmongosh \"mongodb://{{MONGO_USER}}:{{MONGO_PASSWORD}}@YOUR_SERVER_IP:{{PORT}}/{{MONGO_DATABASE}}?authSource=admin\"\n```\n\nOr use a connection string:\n```\nmongodb://{{MONGO_USER}}:{{MONGO_PASSWORD}}@YOUR_SERVER_IP:{{PORT}}/{{MONGO_DATABASE}}?authSource=admin\n```",
+      "securityNotes": "- Change the default password immediately after deployment\n- Use SSL/TLS for production databases via reverse proxy\n- Restrict access to specific IP addresses using UFW\n- Create application-specific users instead of using root\n- Keep MongoDB updated to the latest version\n- Enable authentication (already enabled in this template)",
+      "postDeploymentSteps": "1. Test database connection using mongosh\n2. Create additional databases and users for your applications\n3. Set up monitoring and alerts\n4. Configure backup schedules for the data volume\n5. Consider upgrading to replica set for production (see MongoDB Replica Set template)"
+    },
+    {
+      "id": "builtin-mongodb-replicaset",
+      "subCategory": "nosql",
+      "name": "MongoDB Replica Set",
+      "description": "Production-ready 3-node replica set with transactions and failover support",
+      "category": "database",
+      "dbClassification": "nosql",
+      "icon": "🍃",
+      "minMemoryMB": 2048,
+      "recommendedPort": 27017,
+      "compose": "services:\n  mongodb-primary:\n    image: mongo:7\n    ports:\n      - \"{{PORT}}:27017\"\n    entrypoint:\n      - bash\n      - -c\n      - |\n          set -e\n          KEYFILE_PATH=/etc/mongo-keyfile/keyfile\n          if [ ! -s $$KEYFILE_PATH ]; then\n            umask 077\n            openssl rand -base64 756 > $$KEYFILE_PATH\n            chown mongodb:mongodb $$KEYFILE_PATH\n            chmod 0400 $$KEYFILE_PATH\n          fi\n          exec docker-entrypoint.sh \"$$@\"\n      - --\n    command: [\"--replSet\", \"rs0\", \"--bind_ip_all\", \"--keyFile\", \"/etc/mongo-keyfile/keyfile\"]\n    environment:\n      - MONGO_INITDB_ROOT_USERNAME={{MONGO_USER}}\n      - MONGO_INITDB_ROOT_PASSWORD={{MONGO_PASSWORD}}\n    volumes:\n      - mongodb_primary_data:/data/db\n      - mongodb_keyfile:/etc/mongo-keyfile\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"mongosh\", \"--quiet\", \"--username\", \"{{MONGO_USER}}\", \"--password\", \"{{MONGO_PASSWORD}}\", \"--authenticationDatabase\", \"admin\", \"--eval\", \"db.adminCommand('ping').ok\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n\n  mongodb-secondary1:\n    image: mongo:7\n    entrypoint:\n      - bash\n      - -c\n      - |\n          set -e\n          KEYFILE_PATH=/etc/mongo-keyfile/keyfile\n          until [ -s $$KEYFILE_PATH ]; do\n            echo \"Waiting for MongoDB keyfile...\"\n            sleep 1\n          done\n          exec docker-entrypoint.sh \"$$@\"\n      - --\n    command: [\"--replSet\", \"rs0\", \"--bind_ip_all\", \"--keyFile\", \"/etc/mongo-keyfile/keyfile\", \"--auth\"]\n    volumes:\n      - mongodb_secondary1_data:/data/db\n      - mongodb_keyfile:/etc/mongo-keyfile:ro\n    depends_on:\n      - mongodb-primary\n    restart: unless-stopped\n\n  mongodb-secondary2:\n    image: mongo:7\n    entrypoint:\n      - bash\n      - -c\n      - |\n          set -e\n          KEYFILE_PATH=/etc/mongo-keyfile/keyfile\n          until [ -s $$KEYFILE_PATH ]; do\n            echo \"Waiting for MongoDB keyfile...\"\n            sleep 1\n          done\n          exec docker-entrypoint.sh \"$$@\"\n      - --\n    command: [\"--replSet\", \"rs0\", \"--bind_ip_all\", \"--keyFile\", \"/etc/mongo-keyfile/keyfile\", \"--auth\"]\n    volumes:\n      - mongodb_secondary2_data:/data/db\n      - mongodb_keyfile:/etc/mongo-keyfile:ro\n    depends_on:\n      - mongodb-primary\n    restart: unless-stopped\n\n  mongodb-init:\n    image: mongo:7\n    depends_on:\n      - mongodb-primary\n      - mongodb-secondary1\n      - mongodb-secondary2\n    restart: \"no\"\n    environment:\n      - MONGO_USER={{MONGO_USER}}\n      - MONGO_PASSWORD={{MONGO_PASSWORD}}\n    entrypoint:\n      - bash\n      - -lc\n      - |\n          set -e\n\n          echo \"Waiting for MongoDB primary (auth)...\"\n          until mongosh --quiet mongodb-primary:27017/admin --authenticationDatabase admin --username $$MONGO_USER --password $$MONGO_PASSWORD --eval \"db.adminCommand({ ping: 1 }).ok\" 2>/dev/null | grep -q 1; do\n            sleep 1\n          done\n\n          echo \"Waiting for MongoDB secondaries...\"\n          until mongosh --quiet mongodb-secondary1:27017/admin --eval \"db.hello().ok\" 2>/dev/null | grep -q 1; do\n            sleep 1\n          done\n          until mongosh --quiet mongodb-secondary2:27017/admin --eval \"db.hello().ok\" 2>/dev/null | grep -q 1; do\n            sleep 1\n          done\n\n          # Idempotency: if already configured, do nothing.\n          if mongosh --quiet mongodb-primary:27017/admin --authenticationDatabase admin --username $$MONGO_USER --password $$MONGO_PASSWORD --eval \"db.hello().setName\" 2>/dev/null | grep -q rs0; then\n            echo \"Replica set already initialized.\"\n            exit 0\n          fi\n\n          echo \"Initializing replica set...\"\n          mongosh --quiet mongodb-primary:27017/admin --authenticationDatabase admin --username $$MONGO_USER --password $$MONGO_PASSWORD --eval \"rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb-primary:27017'}, {_id: 1, host: 'mongodb-secondary1:27017'}, {_id: 2, host: 'mongodb-secondary2:27017'}]})\"\n\n          echo \"Waiting for PRIMARY...\"\n          until mongosh --quiet mongodb-primary:27017/admin --authenticationDatabase admin --username $$MONGO_USER --password $$MONGO_PASSWORD --eval \"db.hello().isWritablePrimary ? 1 : 0\" 2>/dev/null | grep -q 1; do\n            sleep 1\n          done\n\n          echo \"Replica set initialized.\"\n\nvolumes:\n  mongodb_primary_data:\n  mongodb_secondary1_data:\n  mongodb_secondary2_data:\n  mongodb_keyfile:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "MONGO_USER",
+          "description": "MongoDB root username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "MONGO_PASSWORD",
+          "description": "MongoDB root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Primary node port",
+          "default": "27017"
+        },
+        {
+          "name": "MONGO_USER",
+          "description": "Root username",
+          "default": "admin"
+        },
+        {
+          "name": "MONGO_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "documentation": "## MongoDB Replica Set\n\n### Auto Initialization\n\nThis template includes a `mongodb-init` one-off container that automatically runs `rs.initiate()` once all nodes are reachable.\n\nIf you're deploying on top of existing volumes (or if init failed), run it manually:\n\n```bash\ndocker compose -p PROJECT_NAME exec mongodb-primary mongosh --username {{MONGO_USER}} --password YOUR_PASSWORD --authenticationDatabase admin --eval \"rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongodb-primary:27017'}, {_id: 1, host: 'mongodb-secondary1:27017'}, {_id: 2, host: 'mongodb-secondary2:27017'}]})\"\n```\n\nCheck replica set status:\n```bash\ndocker compose -p PROJECT_NAME exec mongodb-primary mongosh --username {{MONGO_USER}} --password YOUR_PASSWORD --authenticationDatabase admin --eval \"rs.status()\"\n```\n\n### Notes\n- This template generates a shared internal keyfile in the `mongodb_keyfile` volume to enable replica set authentication.\n- Do not delete the `mongodb_keyfile` volume unless you intend to wipe and recreate the replica set.\n\n### Benefits of Replica Set\n- **Transactions**: Multi-document ACID transactions\n- **High Availability**: Automatic failover\n- **Change Streams**: Real-time data change notifications\n- **Read Scaling**: Distribute reads across secondaries",
+      "externalAccessInstructions": "# Allow External Access to MongoDB Replica Set\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## From your local machine\n\nThe template exposes the `mongodb-primary` container on port {{PORT}}. For external clients, use a direct connection (this avoids trying to resolve the internal Docker hostnames in the replica set config):\n\n```bash\nmongosh \"mongodb://{{MONGO_USER}}:{{MONGO_PASSWORD}}@YOUR_SERVER_IP:{{PORT}}/app?authSource=admin&directConnection=true\"\n```\n\nFor in-cluster connections (from other containers on the same Docker network), use all 3 hosts:\n\n```text\nmongodb://{{MONGO_USER}}:{{MONGO_PASSWORD}}@mongodb-primary:27017,mongodb-secondary1:27017,mongodb-secondary2:27017/app?replicaSet=rs0&authSource=admin\n```",
+      "securityNotes": "- Change the default password immediately after deployment\n- Use SSL/TLS for production databases\n- Restrict access to specific IP addresses\n- Create application-specific users\n- Verify replica set initialization (check `mongodb-init` logs or run rs.status())\n- Do not delete the mongodb_keyfile volume unless you intend to wipe and recreate the replica set",
+      "postDeploymentSteps": "1. Verify replica set status with rs.status() (auto-initialized)\n2. Create application users and databases\n3. Configure backup schedules\n4. Set up monitoring for all nodes"
+    },
+    {
+      "id": "builtin-elasticsearch",
+      "subCategory": "nosql",
+      "name": "Elasticsearch",
+      "description": "Distributed search and analytics engine (512MB heap for development)",
+      "category": "database",
+      "dbClassification": "nosql",
+      "icon": "🔍",
+      "minMemoryMB": 2048,
+      "recommendedPort": 9200,
+      "compose": "services:\n  elasticsearch:\n    image: elasticsearch:8.11.0\n    ports:\n      - \"{{PORT}}:9200\"\n      - \"{{TRANSPORT_PORT}}:9300\"\n    environment:\n      - discovery.type=single-node\n      - xpack.security.enabled=true\n      - ELASTIC_PASSWORD={{ELASTIC_PASSWORD}}\n      - \"ES_JAVA_OPTS=-Xms512m -Xmx512m\"\n    volumes:\n      - elasticsearch_data:/usr/share/elasticsearch/data\n    ulimits:\n      memlock:\n        soft: -1\n        hard: -1\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"curl -s -u elastic:{{ELASTIC_PASSWORD}} http://localhost:9200/_cluster/health | grep -q 'green\\\\|yellow'\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n\nvolumes:\n  elasticsearch_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ELASTIC_PASSWORD",
+          "description": "Elastic user password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP API port",
+          "default": "9200"
+        },
+        {
+          "name": "TRANSPORT_PORT",
+          "description": "Transport port for cluster communication",
+          "default": "9300"
+        },
+        {
+          "name": "ELASTIC_PASSWORD",
+          "description": "Elastic user password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Elasticsearch\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## From your local machine\n\nTest connection:\n```bash\ncurl -u elastic:{{ELASTIC_PASSWORD}} http://YOUR_SERVER_IP:{{PORT}}\n```\n\nCheck cluster health:\n```bash\ncurl -u elastic:{{ELASTIC_PASSWORD}} http://YOUR_SERVER_IP:{{PORT}}/_cluster/health?pretty\n```",
+      "securityNotes": "- Change the default password immediately after deployment\n- Use HTTPS via reverse proxy for production\n- Restrict access to specific IP addresses\n- Keep Elasticsearch updated\n- Monitor memory usage (512MB heap is for development only)\n- For production workloads, use the Production template with 4GB+ heap",
+      "postDeploymentSteps": "1. Test cluster health via API\n2. Create indices for your data\n3. Set up index templates and mappings\n4. Configure ILM policies for data retention\n5. Set up monitoring with Kibana\n6. For production, upgrade to Elasticsearch Production template"
+    },
+    {
+      "id": "builtin-elasticsearch-prod",
+      "subCategory": "nosql",
+      "name": "Elasticsearch (Production)",
+      "description": "Production-ready Elasticsearch with 4GB heap (recommended: 50% of RAM up to 32GB)",
+      "category": "database",
+      "dbClassification": "nosql",
+      "icon": "🔍",
+      "minMemoryMB": 8192,
+      "recommendedPort": 9201,
+      "compose": "services:\n  elasticsearch:\n    image: elasticsearch:8.11.0\n    ports:\n      - \"{{PORT}}:9200\"\n      - \"{{TRANSPORT_PORT}}:9300\"\n    environment:\n      - discovery.type=single-node\n      - xpack.security.enabled=true\n      - ELASTIC_PASSWORD={{ELASTIC_PASSWORD}}\n      - \"ES_JAVA_OPTS=-Xms4g -Xmx4g\"\n    volumes:\n      - elasticsearch_data:/usr/share/elasticsearch/data\n    ulimits:\n      memlock:\n        soft: -1\n        hard: -1\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"curl -s -u elastic:{{ELASTIC_PASSWORD}} http://localhost:9200/_cluster/health | grep -q 'green\\\\|yellow'\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n\nvolumes:\n  elasticsearch_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ELASTIC_PASSWORD",
+          "description": "Elastic user password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP API port",
+          "default": "9201"
+        },
+        {
+          "name": "TRANSPORT_PORT",
+          "description": "Transport port for cluster communication",
+          "default": "9301"
+        },
+        {
+          "name": "ELASTIC_PASSWORD",
+          "description": "Elastic user password",
+          "default": ""
+        }
+      ],
+      "documentation": "## Production Elasticsearch\n\n### Memory Configuration\n- Default heap: 4GB (adjust based on available RAM)\n- Recommended: Set heap to 50% of available RAM, maximum 32GB\n- Ensure vm.max_map_count=262144 on host\n\n### Host Configuration\nOn the host machine, run:\n```bash\nsudo sysctl -w vm.max_map_count=262144\necho 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.conf\n```\n\n### Heap Sizing Guidelines\n- 8GB RAM server → 4GB heap (default)\n- 16GB RAM server → 8GB heap\n- 32GB+ RAM server → 16GB heap (max recommended)",
+      "externalAccessInstructions": "# Allow External Access to Elasticsearch\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Configure vm.max_map_count (required)\n```bash\nsudo sysctl -w vm.max_map_count=262144\necho 'vm.max_map_count=262144' | sudo tee -a /etc/sysctl.conf\n```\n\n## From your local machine\n\nTest connection:\n```bash\ncurl -u elastic:{{ELASTIC_PASSWORD}} http://YOUR_SERVER_IP:{{PORT}}/_cluster/health?pretty\n```",
+      "securityNotes": "- Use strong passwords\n- Enable HTTPS via reverse proxy\n- Restrict network access\n- Monitor cluster health and performance\n- Set up snapshot repository for backups\n- Consider multi-node cluster for high availability",
+      "postDeploymentSteps": "1. Configure vm.max_map_count on host\n2. Test cluster health\n3. Create indices with proper mappings\n4. Set up ILM policies\n5. Configure snapshot repository for backups\n6. Set up monitoring dashboards"
+    },
+    {
+      "id": "builtin-couchdb",
+      "subCategory": "nosql",
+      "name": "CouchDB",
+      "description": "Seamless multi-master sync with built-in REST API",
+      "category": "database",
+      "dbClassification": "nosql",
+      "icon": "🛋️",
+      "minMemoryMB": 256,
+      "recommendedPort": 5984,
+      "compose": "services:\n  couchdb:\n    image: couchdb:3\n    ports:\n      - \"{{PORT}}:5984\"\n    environment:\n      - COUCHDB_USER={{COUCHDB_USER}}\n      - COUCHDB_PASSWORD={{COUCHDB_PASSWORD}}\n    volumes:\n      - couchdb_data:/opt/couchdb/data\n      - couchdb_config:/opt/couchdb/etc/local.d\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"curl\", \"-f\", \"http://localhost:5984/\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n\nvolumes:\n  couchdb_data:\n  couchdb_config:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "COUCHDB_USER",
+          "description": "CouchDB admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "COUCHDB_PASSWORD",
+          "description": "CouchDB admin password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "CouchDB port",
+          "default": "5984"
+        },
+        {
+          "name": "COUCHDB_USER",
+          "description": "Admin username",
+          "default": "admin"
+        },
+        {
+          "name": "COUCHDB_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to CouchDB\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## From your local machine\n\nAccess Fauxton UI:\nhttp://YOUR_SERVER_IP:{{PORT}}/_utils\n\nTest API:\n```bash\ncurl -u {{COUCHDB_USER}}:{{COUCHDB_PASSWORD}} http://YOUR_SERVER_IP:{{PORT}}/\n```\n\nList databases:\n```bash\ncurl -u {{COUCHDB_USER}}:{{COUCHDB_PASSWORD}} http://YOUR_SERVER_IP:{{PORT}}/_all_dbs\n```",
+      "securityNotes": "- Change the default password immediately\n- Use HTTPS via reverse proxy for production\n- Restrict access to specific IP addresses\n- Configure per-database security for multi-tenant apps\n- Enable SSL for replication between nodes\n- Keep CouchDB updated",
+      "postDeploymentSteps": "1. Access Fauxton UI at http://SERVER:{{PORT}}/_utils\n2. Create databases for your applications\n3. Set up design documents for views and filters\n4. Configure replication if using multiple nodes\n5. Set up monitoring\n6. Configure backup schedules"
+    },
+    {
+      "id": "builtin-cassandra",
+      "subCategory": "nosql",
+      "name": "Cassandra",
+      "description": "Highly scalable distributed database with authentication enabled",
+      "category": "database",
+      "dbClassification": "nosql",
+      "icon": "👁️",
+      "minMemoryMB": 2048,
+      "recommendedPort": 9042,
+      "compose": "services:\n  cassandra:\n    image: cassandra:4.1\n    ports:\n      - \"{{PORT}}:9042\"\n      - \"{{JMX_PORT}}:7199\"\n    environment:\n      - CASSANDRA_CLUSTER_NAME={{CLUSTER_NAME}}\n      - CASSANDRA_DC={{DATACENTER}}\n      - CASSANDRA_RACK={{RACK}}\n      - CASSANDRA_AUTHENTICATOR=PasswordAuthenticator\n      - CASSANDRA_AUTHORIZER=CassandraAuthorizer\n      - HEAP_NEWSIZE={{HEAP_NEWSIZE}}\n      - MAX_HEAP_SIZE={{MAX_HEAP_SIZE}}\n    volumes:\n      - cassandra_data:/var/lib/cassandra\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"cqlsh -u cassandra -p cassandra -e 'describe cluster' || exit 1\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n      start_period: 60s\n\nvolumes:\n  cassandra_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "CLUSTER_NAME",
+          "description": "Cassandra cluster name",
+          "required": false,
+          "default": "ServerCompass",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "CQL native transport port",
+          "default": "9042"
+        },
+        {
+          "name": "JMX_PORT",
+          "description": "JMX monitoring port",
+          "default": "7199"
+        },
+        {
+          "name": "CLUSTER_NAME",
+          "description": "Cluster name",
+          "default": "ServerCompass"
+        },
+        {
+          "name": "DATACENTER",
+          "description": "Datacenter name",
+          "default": "dc1"
+        },
+        {
+          "name": "RACK",
+          "description": "Rack name",
+          "default": "rack1"
+        },
+        {
+          "name": "HEAP_NEWSIZE",
+          "description": "JVM heap new size",
+          "default": "128M"
+        },
+        {
+          "name": "MAX_HEAP_SIZE",
+          "description": "JVM max heap size",
+          "default": "512M"
+        }
+      ],
+      "documentation": "## Cassandra Authentication\n\nThis template has authentication enabled by default using PasswordAuthenticator.\n\n### Default Credentials\n- Username: `cassandra`\n- Password: `cassandra`\n\n### First Login - Change Default Password\n\n```bash\ndocker exec -it PROJECT_NAME-cassandra cqlsh -u cassandra -p cassandra\n```\n\nThen run:\n```sql\nALTER USER cassandra WITH PASSWORD 'your_new_secure_password';\n```\n\n### Create Application User\n\n```sql\nCREATE USER app_user WITH PASSWORD 'app_password' NOSUPERUSER;\nGRANT ALL PERMISSIONS ON KEYSPACE your_keyspace TO app_user;\n```",
+      "externalAccessInstructions": "# Allow External Access to Cassandra\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## From your local machine\n\nConnect using cqlsh:\n```bash\ncqlsh YOUR_SERVER_IP {{PORT}} -u cassandra -p YOUR_PASSWORD\n```\n\nOr use a driver connection string:\n```\ncassandra://YOUR_SERVER_IP:{{PORT}}\n```",
+      "securityNotes": "- IMMEDIATELY change the default cassandra/cassandra password after first login\n- Create application-specific users with limited permissions\n- Use SSL/TLS for production client connections\n- Restrict access to specific IP addresses\n- Monitor JMX metrics for performance\n- Keep Cassandra updated",
+      "postDeploymentSteps": "1. Connect with cqlsh using default credentials (cassandra/cassandra)\n2. IMMEDIATELY change the default password\n3. Create a keyspace for your application\n4. Create application-specific users with limited permissions\n5. Set up monitoring via JMX\n6. Configure backup schedules for the data volume"
+    },
+    {
+      "id": "builtin-mariadb",
+      "subCategory": "sql",
+      "name": "MariaDB",
+      "description": "Community-developed MySQL fork with enhanced features",
+      "icon": "🦭",
+      "minMemoryMB": 512,
+      "recommendedPort": 3306,
+      "compose": "services:\n  mariadb:\n    image: mariadb:11\n    ports:\n      - \"{{PORT}}:3306\"\n    environment:\n      - MARIADB_ROOT_PASSWORD={{ROOT_PASSWORD}}\n      - MARIADB_DATABASE={{DATABASE}}\n      - MARIADB_USER={{USER}}\n      - MARIADB_PASSWORD={{PASSWORD}}\n    volumes:\n      - mariadb_data:/var/lib/mysql\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"healthcheck.sh --connect --innodb_initialized\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  mariadb_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ROOT_PASSWORD",
+          "description": "MariaDB root password",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        },
+        {
+          "key": "DATABASE",
+          "description": "Database name",
+          "required": true,
+          "default": "app",
+          "type": "string"
+        },
+        {
+          "key": "USER",
+          "description": "Database user",
+          "required": true,
+          "default": "app",
+          "type": "string"
+        },
+        {
+          "key": "PASSWORD",
+          "description": "User password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3306"
+        },
+        {
+          "name": "ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        },
+        {
+          "name": "DATABASE",
+          "description": "Database name",
+          "default": "app"
+        },
+        {
+          "name": "USER",
+          "description": "Database user",
+          "default": "app"
+        },
+        {
+          "name": "PASSWORD",
+          "description": "User password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Connect: mysql -h YOUR_SERVER_IP -P {{PORT}} -u {{USER}} -p",
+      "securityNotes": "Use strong passwords and restrict access to trusted IPs",
+      "postDeploymentSteps": "1. Test connection\n2. Create additional users as needed\n3. Set up backups",
+      "category": "database"
+    },
+    {
+      "id": "builtin-timescaledb",
+      "subCategory": "sql",
+      "name": "TimescaleDB",
+      "description": "Time-series database built on PostgreSQL for metrics, events, and analytics",
+      "icon": "⏱️",
+      "minMemoryMB": 512,
+      "recommendedPort": 5432,
+      "compose": "services:\n  timescaledb:\n    image: timescale/timescaledb:latest-pg16\n    ports:\n      - \"{{PORT}}:5432\"\n    environment:\n      - POSTGRES_USER={{POSTGRES_USER}}\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - POSTGRES_DB={{POSTGRES_DB}}\n    volumes:\n      - timescaledb_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{POSTGRES_USER}} -d {{POSTGRES_DB}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  timescaledb_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "POSTGRES_USER",
+          "description": "PostgreSQL username",
+          "required": true,
+          "default": "postgres",
+          "type": "string"
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "description": "PostgreSQL password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "POSTGRES_DB",
+          "description": "Database name",
+          "required": true,
+          "default": "timeseries",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "5432"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "description": "Username",
+          "default": "postgres"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "description": "Password",
+          "default": ""
+        },
+        {
+          "name": "POSTGRES_DB",
+          "description": "Database",
+          "default": "timeseries"
+        }
+      ],
+      "externalAccessInstructions": "Connect: psql -h YOUR_SERVER_IP -p {{PORT}} -U {{POSTGRES_USER}} -d {{POSTGRES_DB}}",
+      "securityNotes": "Use strong passwords and enable SSL for production",
+      "postDeploymentSteps": "1. Enable TimescaleDB extension: CREATE EXTENSION IF NOT EXISTS timescaledb;\n2. Create hypertables for time-series data",
+      "category": "database"
+    },
+    {
+      "id": "builtin-clickhouse",
+      "subCategory": "sql",
+      "name": "ClickHouse",
+      "description": "Fast open-source OLAP database for real-time analytics",
+      "icon": "🏠",
+      "minMemoryMB": 2048,
+      "recommendedPort": 8123,
+      "compose": "services:\n  clickhouse:\n    image: clickhouse/clickhouse-server:latest\n    ports:\n      - \"{{PORT}}:8123\"\n      - \"{{NATIVE_PORT}}:9000\"\n    environment:\n      - CLICKHOUSE_USER={{CLICKHOUSE_USER}}\n      - CLICKHOUSE_PASSWORD={{CLICKHOUSE_PASSWORD}}\n      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1\n    volumes:\n      - clickhouse_data:/var/lib/clickhouse\n      - clickhouse_logs:/var/log/clickhouse-server\n    restart: unless-stopped\n    ulimits:\n      nofile:\n        soft: 262144\n        hard: 262144\n\nvolumes:\n  clickhouse_data:\n  clickhouse_logs:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "CLICKHOUSE_USER",
+          "description": "ClickHouse username",
+          "required": true,
+          "default": "default",
+          "type": "string"
+        },
+        {
+          "key": "CLICKHOUSE_PASSWORD",
+          "description": "ClickHouse password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP port",
+          "default": "8123"
+        },
+        {
+          "name": "NATIVE_PORT",
+          "description": "Native protocol port",
+          "default": "9000"
+        },
+        {
+          "name": "CLICKHOUSE_USER",
+          "description": "Username",
+          "default": "default"
+        },
+        {
+          "name": "CLICKHOUSE_PASSWORD",
+          "description": "Password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "HTTP Interface: http://YOUR_SERVER_IP:{{PORT}}\nNative client: clickhouse-client -h YOUR_SERVER_IP --port {{NATIVE_PORT}} -u {{CLICKHOUSE_USER}} --password",
+      "securityNotes": "Use strong passwords and restrict access. ClickHouse is optimized for analytics, not OLTP.",
+      "postDeploymentSteps": "1. Test connection via HTTP or native client\n2. Create databases and tables\n3. Set up data ingestion pipelines",
+      "category": "database"
+    },
+    {
+      "id": "builtin-mssql",
+      "subCategory": "sql",
+      "name": "SQL Server 2019",
+      "description": "Microsoft SQL Server 2019 Developer Edition",
+      "icon": "🔷",
+      "minMemoryMB": 2048,
+      "recommendedPort": 1433,
+      "compose": "services:\n  mssql:\n    image: mcr.microsoft.com/mssql/server:2019-latest\n    ports:\n      - \"{{PORT}}:1433\"\n    environment:\n      - ACCEPT_EULA=Y\n      - MSSQL_SA_PASSWORD={{SA_PASSWORD}}\n      - MSSQL_PID=Developer\n    volumes:\n      - mssql_data:/var/opt/mssql\n    restart: unless-stopped\n\nvolumes:\n  mssql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SA_PASSWORD",
+          "description": "SA password (min 8 chars, uppercase, lowercase, digit)",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "1433"
+        },
+        {
+          "name": "SA_PASSWORD",
+          "description": "SA password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Connect: sqlcmd -S YOUR_SERVER_IP,{{PORT}} -U sa -P 'your_password'",
+      "securityNotes": "SA password must be strong (8+ chars with uppercase, lowercase, digit). Developer Edition is free but not for production.",
+      "postDeploymentSteps": "1. Connect with sqlcmd or SSMS\n2. Create databases and users\n3. Set up backups",
+      "category": "database"
+    },
+    {
+      "id": "builtin-valkey",
+      "subCategory": "nosql",
+      "name": "Valkey",
+      "description": "Open-source Redis fork maintained by Linux Foundation",
+      "icon": "🔑",
+      "minMemoryMB": 64,
+      "recommendedPort": 6379,
+      "compose": "services:\n  valkey:\n    image: valkey/valkey:8-alpine\n    ports:\n      - \"{{PORT}}:6379\"\n    volumes:\n      - valkey_data:/data\n    command: valkey-server --appendonly yes\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"valkey-cli\", \"ping\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  valkey_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "6379"
+        }
+      ],
+      "externalAccessInstructions": "Connect: valkey-cli -h YOUR_SERVER_IP -p {{PORT}}",
+      "securityNotes": "No password by default. Add requirepass for production.",
+      "postDeploymentSteps": "1. Test connection\n2. Configure password authentication\n3. Set up persistence",
+      "category": "database"
+    },
+    {
+      "id": "builtin-keydb",
+      "subCategory": "nosql",
+      "name": "KeyDB",
+      "description": "High-performance Redis-compatible database with multithreading",
+      "icon": "🔐",
+      "minMemoryMB": 128,
+      "recommendedPort": 6379,
+      "compose": "services:\n  keydb:\n    image: eqalpha/keydb:latest\n    ports:\n      - \"{{PORT}}:6379\"\n    volumes:\n      - keydb_data:/data\n    command: keydb-server --appendonly yes --server-threads 2\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"keydb-cli\", \"ping\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  keydb_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "6379"
+        }
+      ],
+      "externalAccessInstructions": "Connect: redis-cli -h YOUR_SERVER_IP -p {{PORT}}",
+      "securityNotes": "No password by default. Use --requirepass for production.",
+      "postDeploymentSteps": "1. Test connection with redis-cli\n2. Configure authentication\n3. Tune server-threads based on CPU cores",
+      "category": "database"
+    },
+    {
+      "id": "builtin-scylladb",
+      "subCategory": "nosql",
+      "name": "ScyllaDB",
+      "description": "High-performance Cassandra-compatible NoSQL database",
+      "icon": "🦂",
+      "minMemoryMB": 2048,
+      "recommendedPort": 9042,
+      "compose": "services:\n  scylladb:\n    image: scylladb/scylla:latest\n    ports:\n      - \"{{PORT}}:9042\"\n      - \"{{API_PORT}}:10000\"\n    volumes:\n      - scylla_data:/var/lib/scylla\n    command: --smp 1 --memory 750M --overprovisioned 1 --api-address 0.0.0.0\n    restart: unless-stopped\n\nvolumes:\n  scylla_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "CQL port",
+          "default": "9042"
+        },
+        {
+          "name": "API_PORT",
+          "description": "REST API port",
+          "default": "10000"
+        }
+      ],
+      "externalAccessInstructions": "Connect: cqlsh YOUR_SERVER_IP {{PORT}}",
+      "securityNotes": "Enable authentication in production. Default has no auth.",
+      "postDeploymentSteps": "1. Connect with cqlsh\n2. Create keyspaces and tables\n3. Enable authentication",
+      "category": "database"
+    },
+    {
+      "id": "builtin-ferretdb",
+      "subCategory": "nosql",
+      "name": "FerretDB",
+      "description": "MongoDB-compatible database built on PostgreSQL",
+      "icon": "🦡",
+      "minMemoryMB": 512,
+      "recommendedPort": 27017,
+      "compose": "services:\n  ferretdb:\n    image: ferretdb/ferretdb:latest\n    ports:\n      - \"{{PORT}}:27017\"\n    environment:\n      - FERRETDB_POSTGRESQL_URL=postgres://{{POSTGRES_USER}}:{{POSTGRES_PASSWORD}}@postgres:5432/{{POSTGRES_DB}}\n    depends_on:\n      postgres:\n        condition: service_healthy\n    restart: unless-stopped\n\n  postgres:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER={{POSTGRES_USER}}\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - POSTGRES_DB={{POSTGRES_DB}}\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{POSTGRES_USER}} -d {{POSTGRES_DB}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "POSTGRES_USER",
+          "description": "PostgreSQL user",
+          "required": true,
+          "default": "ferret",
+          "type": "string"
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "description": "PostgreSQL password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "POSTGRES_DB",
+          "description": "Database name",
+          "required": true,
+          "default": "ferretdb",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "MongoDB port",
+          "default": "27017"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "description": "User",
+          "default": "ferret"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "description": "Password",
+          "default": ""
+        },
+        {
+          "name": "POSTGRES_DB",
+          "description": "Database",
+          "default": "ferretdb"
+        }
+      ],
+      "externalAccessInstructions": "Connect: mongosh mongodb://YOUR_SERVER_IP:{{PORT}}/",
+      "securityNotes": "Data is stored in PostgreSQL. Secure the PostgreSQL backend.",
+      "postDeploymentSteps": "1. Connect with mongosh or MongoDB drivers\n2. Create collections (stored as PostgreSQL tables)",
+      "category": "database"
+    },
+    {
+      "id": "builtin-influxdb",
+      "subCategory": "specialized",
+      "name": "InfluxDB",
+      "description": "Time-series database for metrics, events, and real-time analytics",
+      "icon": "📊",
+      "minMemoryMB": 512,
+      "recommendedPort": 8086,
+      "compose": "services:\n  influxdb:\n    image: influxdb:2-alpine\n    ports:\n      - \"{{PORT}}:8086\"\n    environment:\n      - DOCKER_INFLUXDB_INIT_MODE=setup\n      - DOCKER_INFLUXDB_INIT_USERNAME={{INFLUX_USER}}\n      - DOCKER_INFLUXDB_INIT_PASSWORD={{INFLUX_PASSWORD}}\n      - DOCKER_INFLUXDB_INIT_ORG={{INFLUX_ORG}}\n      - DOCKER_INFLUXDB_INIT_BUCKET={{INFLUX_BUCKET}}\n      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN={{INFLUX_TOKEN}}\n    volumes:\n      - influxdb_data:/var/lib/influxdb2\n      - influxdb_config:/etc/influxdb2\n    restart: unless-stopped\n\nvolumes:\n  influxdb_data:\n  influxdb_config:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "INFLUX_USER",
+          "description": "Admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "INFLUX_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "INFLUX_ORG",
+          "description": "Organization name",
+          "required": true,
+          "default": "myorg",
+          "type": "string"
+        },
+        {
+          "key": "INFLUX_BUCKET",
+          "description": "Initial bucket",
+          "required": true,
+          "default": "mybucket",
+          "type": "string"
+        },
+        {
+          "key": "INFLUX_TOKEN",
+          "description": "Admin API token",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8086"
+        },
+        {
+          "name": "INFLUX_USER",
+          "description": "Username",
+          "default": "admin"
+        },
+        {
+          "name": "INFLUX_PASSWORD",
+          "description": "Password",
+          "default": ""
+        },
+        {
+          "name": "INFLUX_ORG",
+          "description": "Organization",
+          "default": "myorg"
+        },
+        {
+          "name": "INFLUX_BUCKET",
+          "description": "Bucket",
+          "default": "mybucket"
+        },
+        {
+          "name": "INFLUX_TOKEN",
+          "description": "API token",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "UI: http://YOUR_SERVER_IP:{{PORT}}\nAPI: Use INFLUX_TOKEN for authentication",
+      "securityNotes": "Keep your admin token secure. Create read-only tokens for applications.",
+      "postDeploymentSteps": "1. Access UI at http://SERVER:{{PORT}}\n2. Create buckets for different data\n3. Set up Telegraf for data collection",
+      "category": "database"
+    },
+    {
+      "id": "builtin-opensearch",
+      "subCategory": "specialized",
+      "name": "OpenSearch",
+      "description": "Open-source search and analytics suite (Elasticsearch fork)",
+      "icon": "🔎",
+      "minMemoryMB": 2048,
+      "recommendedPort": 9200,
+      "compose": "services:\n  opensearch:\n    image: opensearchproject/opensearch:latest\n    ports:\n      - \"{{PORT}}:9200\"\n      - \"{{PERF_PORT}}:9600\"\n    environment:\n      - discovery.type=single-node\n      - OPENSEARCH_INITIAL_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - \"OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m\"\n    volumes:\n      - opensearch_data:/usr/share/opensearch/data\n    ulimits:\n      memlock:\n        soft: -1\n        hard: -1\n    restart: unless-stopped\n\n  opensearch-dashboards:\n    image: opensearchproject/opensearch-dashboards:latest\n    ports:\n      - \"{{DASHBOARD_PORT}}:5601\"\n    environment:\n      - OPENSEARCH_HOSTS=[\"https://opensearch:9200\"]\n    depends_on:\n      - opensearch\n    restart: unless-stopped\n\nvolumes:\n  opensearch_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password (8+ chars, uppercase, lowercase, digit, special)",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "API port",
+          "default": "9200"
+        },
+        {
+          "name": "PERF_PORT",
+          "description": "Performance port",
+          "default": "9600"
+        },
+        {
+          "name": "DASHBOARD_PORT",
+          "description": "Dashboards port",
+          "default": "5601"
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "API: https://YOUR_SERVER_IP:{{PORT}} (user: admin)\nDashboards: http://YOUR_SERVER_IP:{{DASHBOARD_PORT}}",
+      "securityNotes": "Password must be strong (8+ chars with uppercase, lowercase, digit, special char)",
+      "postDeploymentSteps": "1. Access Dashboards at http://SERVER:{{DASHBOARD_PORT}}\n2. Login with admin credentials\n3. Create indices and set up data ingestion",
+      "category": "database"
+    },
+    {
+      "id": "builtin-weaviate",
+      "subCategory": "specialized",
+      "name": "Weaviate",
+      "description": "AI-native vector database for semantic search and RAG applications",
+      "icon": "🧠",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8080,
+      "compose": "services:\n  weaviate:\n    image: semitechnologies/weaviate:latest\n    ports:\n      - \"{{PORT}}:8080\"\n      - \"{{GRPC_PORT}}:50051\"\n    environment:\n      - QUERY_DEFAULTS_LIMIT=25\n      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true\n      - PERSISTENCE_DATA_PATH=/var/lib/weaviate\n      - DEFAULT_VECTORIZER_MODULE=none\n      - CLUSTER_HOSTNAME=node1\n    volumes:\n      - weaviate_data:/var/lib/weaviate\n    restart: unless-stopped\n\nvolumes:\n  weaviate_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "REST API port",
+          "default": "8080"
+        },
+        {
+          "name": "GRPC_PORT",
+          "description": "gRPC port",
+          "default": "50051"
+        }
+      ],
+      "externalAccessInstructions": "REST API: http://YOUR_SERVER_IP:{{PORT}}\ngRPC: YOUR_SERVER_IP:{{GRPC_PORT}}",
+      "securityNotes": "Anonymous access enabled by default. Configure authentication for production.",
+      "postDeploymentSteps": "1. Access REST API\n2. Create schema and classes\n3. Configure vectorizers if needed",
+      "category": "database"
+    },
+    {
+      "id": "builtin-kafka",
+      "subCategory": "specialized",
+      "name": "Apache Kafka",
+      "description": "Distributed event streaming platform with KRaft mode (no Zookeeper)",
+      "icon": "📨",
+      "minMemoryMB": 1024,
+      "recommendedPort": 9092,
+      "compose": "services:\n  kafka:\n    image: apache/kafka:latest\n    ports:\n      - \"{{PORT}}:9092\"\n    environment:\n      - KAFKA_NODE_ID=1\n      - KAFKA_PROCESS_ROLES=broker,controller\n      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093\n      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:{{PORT}}\n      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER\n      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT\n      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093\n      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1\n      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1\n      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1\n      - KAFKA_LOG_DIRS=/var/lib/kafka/data\n    volumes:\n      - kafka_data:/var/lib/kafka/data\n    restart: unless-stopped\n\nvolumes:\n  kafka_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Kafka port",
+          "default": "9092"
+        }
+      ],
+      "externalAccessInstructions": "Bootstrap server: YOUR_SERVER_IP:{{PORT}}\nUse Kafka CLI tools or client libraries to connect",
+      "securityNotes": "No authentication by default. Configure SASL/SSL for production.",
+      "postDeploymentSteps": "1. Create topics\n2. Test with kafka-console-producer and kafka-console-consumer\n3. Configure retention policies",
+      "category": "database"
+    },
+    {
+      "id": "builtin-hydra",
+      "subCategory": "specialized",
+      "name": "Hydra",
+      "description": "Postgres-compatible columnar database for fast analytics queries",
+      "icon": "🐉",
+      "minMemoryMB": 512,
+      "recommendedPort": 5432,
+      "compose": "services:\n  hydra:\n    image: ghcr.io/hydradatabase/hydra:latest\n    ports:\n      - \"{{PORT}}:5432\"\n    environment:\n      - POSTGRES_USER={{POSTGRES_USER}}\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - POSTGRES_DB={{POSTGRES_DB}}\n    volumes:\n      - hydra_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{POSTGRES_USER}} -d {{POSTGRES_DB}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  hydra_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "POSTGRES_USER",
+          "description": "Database username",
+          "required": true,
+          "default": "hydra",
+          "type": "string"
+        },
+        {
+          "key": "POSTGRES_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "POSTGRES_DB",
+          "description": "Database name",
+          "required": true,
+          "default": "hydra",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "5432"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "description": "Username",
+          "default": "hydra"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "description": "Password",
+          "default": ""
+        },
+        {
+          "name": "POSTGRES_DB",
+          "description": "Database",
+          "default": "hydra"
+        }
+      ],
+      "externalAccessInstructions": "Connect: psql -h YOUR_SERVER_IP -p {{PORT}} -U {{POSTGRES_USER}} -d {{POSTGRES_DB}}",
+      "securityNotes": "Use strong passwords. Hydra is Postgres-compatible so standard Postgres security applies.",
+      "postDeploymentSteps": "1. Connect with psql or any Postgres client\n2. Create columnar tables with USING columnar\n3. Load data for analytics",
+      "category": "database"
+    },
+    {
+      "id": "builtin-neon-local",
+      "subCategory": "sql",
+      "name": "Neon Local",
+      "description": "Postgres-compatible local proxy for Neon serverless Postgres projects",
+      "category": "database",
+      "dbClassification": "relational",
+      "icon": "🌿",
+      "minMemoryMB": 128,
+      "recommendedPort": 5432,
+      "compose": "services:\n  neon-local:\n    image: neondatabase/neon_local:latest\n    ports:\n      - \"{{PORT}}:5432\"\n    restart: unless-stopped\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "NEON_API_KEY",
+          "description": "Neon API key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "NEON_PROJECT_ID",
+          "description": "Neon project ID",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "DELETE_BRANCH",
+          "description": "Delete ephemeral branch when Neon Local stops (true/false)",
+          "required": false,
+          "default": "true",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "5432"
+        },
+        {
+          "name": "NEON_API_KEY",
+          "description": "Neon API key",
+          "default": ""
+        },
+        {
+          "name": "NEON_PROJECT_ID",
+          "description": "Neon project ID",
+          "default": ""
+        },
+        {
+          "name": "DELETE_BRANCH",
+          "description": "Delete branch on stop",
+          "default": "true"
+        }
+      ],
+      "externalAccessInstructions": "Connect using Postgres clients:\n\npostgresql://neon:npg@YOUR_SERVER_IP:{{PORT}}/neondb?sslmode=require",
+      "securityNotes": "- Keep NEON_API_KEY secret\n- Restrict access to port {{PORT}} to trusted IPs\n- Neon Local uses TLS to Neon; keep client SSL mode enabled\n- Use DELETE_BRANCH=true for ephemeral preview workflows",
+      "postDeploymentSteps": "1. Get NEON_API_KEY and NEON_PROJECT_ID from Neon dashboard\n2. Connect with psql or your app using postgres://neon:npg@YOUR_SERVER_IP:{{PORT}}/neondb?sslmode=require\n3. For persistent preview branches, set DELETE_BRANCH=false"
+    }
+  ]
+}

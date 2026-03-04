@@ -1,0 +1,2778 @@
+{
+  "parentCategory": "development",
+  "templates": [
+    {
+      "id": "builtin-supabase-full",
+      "_kong_password_note": "IMPORTANT: DASHBOARD_PASSWORD and API keys (ANON_KEY, SERVICE_ROLE_KEY) are baked into kong.yml at deploy time. Kong loads this file at startup and caches it in memory. On redeploy, ServerCompass regenerates kong.yml AND restarts Kong to apply password changes. See DockerStackService.regenerateSupabaseKongConfig().",
+      "_studio_port_note": "CRITICAL: Studio service MUST have 'PORT=3000' in environment. Without it, Studio inherits PORT=8000 from .env (used by Kong) and listens on wrong port. Kong expects Studio at http://studio:3000/ - if Studio listens on 8000, Kong returns '502 invalid response from upstream'.",
+      "name": "Supabase",
+      "description": "Full Supabase self-hosted with Kong API Gateway, GoTrue Auth, Realtime, and protected Studio dashboard",
+      "parentCategory": "development",
+      "subCategory": "baas",
+      "category": "development",
+      "appType": "service",
+      "icon": "⚡",
+      "minMemoryMB": 4096,
+      "recommendedPort": 8000,
+      "compose": "services:\n  kong:\n    image: kong:2.8.1\n    ports:\n      - \"{{PORT}}:8000\"\n      - \"{{KONG_HTTPS_PORT}}:8443\"\n    environment:\n      - KONG_DATABASE=off\n      - KONG_DECLARATIVE_CONFIG=/var/lib/kong/kong.yml\n      - KONG_DNS_ORDER=LAST,A,CNAME\n      - KONG_PLUGINS=request-transformer,cors,key-auth,acl,basic-auth\n      - KONG_NGINX_PROXY_PROXY_BUFFER_SIZE=160k\n      - KONG_NGINX_PROXY_PROXY_BUFFERS=64 160k\n    volumes:\n      - ./kong.yml:/var/lib/kong/kong.yml:ro\n    restart: unless-stopped\n    depends_on:\n      - rest\n      - auth\n      - realtime\n      - studio\n\n  auth:\n    image: supabase/gotrue:v2.184.0\n    command: ['/bin/sh', '-c', 'gotrue migrate && gotrue serve']\n    environment:\n      - GOTRUE_API_HOST=0.0.0.0\n      - GOTRUE_API_PORT=9999\n      - API_EXTERNAL_URL=http://localhost:{{PORT}}\n      - GOTRUE_DB_DRIVER=postgres\n      - GOTRUE_DB_DATABASE_URL=postgres://supabase_auth_admin:{{POSTGRES_PASSWORD}}@db:5432/postgres\n      - DATABASE_URL=postgres://supabase_auth_admin:{{POSTGRES_PASSWORD}}@db:5432/postgres\n      - DB_NAMESPACE=auth\n      - GOTRUE_SITE_URL=http://localhost:{{PORT}}\n      - GOTRUE_URI_ALLOW_LIST=\n      - GOTRUE_DISABLE_SIGNUP=false\n      - GOTRUE_JWT_ADMIN_ROLES=service_role\n      - GOTRUE_JWT_AUD=authenticated\n      - GOTRUE_JWT_DEFAULT_GROUP_NAME=authenticated\n      - GOTRUE_JWT_EXP=3600\n      - GOTRUE_JWT_SECRET={{JWT_SECRET}}\n      - GOTRUE_EXTERNAL_EMAIL_ENABLED=true\n      - GOTRUE_MAILER_AUTOCONFIRM=true\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  rest:\n    image: postgrest/postgrest:v12.2.0\n    environment:\n      - PGRST_DB_URI=postgres://authenticator:{{POSTGRES_PASSWORD}}@db:5432/postgres\n      - PGRST_DB_SCHEMAS=public,storage,graphql_public\n      - PGRST_DB_ANON_ROLE=anon\n      - PGRST_JWT_SECRET={{JWT_SECRET}}\n      - PGRST_DB_USE_LEGACY_GUCS=false\n      - PGRST_APP_SETTINGS_JWT_SECRET={{JWT_SECRET}}\n      - PGRST_APP_SETTINGS_JWT_EXP=3600\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  realtime:\n    image: supabase/realtime:v2.25.50\n    environment:\n      - PORT=4000\n      - DB_HOST=db\n      - DB_PORT=5432\n      - DB_USER=supabase_admin\n      - DB_PASSWORD={{POSTGRES_PASSWORD}}\n      - DB_NAME=postgres\n      - DB_AFTER_CONNECT_QUERY=SET search_path TO _realtime\n      - DB_ENC_KEY=supabaserealtime\n      - API_JWT_SECRET={{JWT_SECRET}}\n      - FLY_ALLOC_ID=fly123\n      - FLY_APP_NAME=realtime\n      - SECRET_KEY_BASE={{JWT_SECRET}}\n      - ERL_AFLAGS=-proto_dist inet_tcp\n      - ENABLE_TAILSCALE=false\n      - DNS_NODES=\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  meta:\n    image: supabase/postgres-meta:v0.83.2\n    environment:\n      - PG_META_PORT=8080\n      - PG_META_DB_HOST=db\n      - PG_META_DB_PORT=5432\n      - PG_META_DB_NAME=postgres\n      - PG_META_DB_USER=supabase_admin\n      - PG_META_DB_PASSWORD={{POSTGRES_PASSWORD}}\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  studio:\n    image: supabase/studio:20240729-ce42139\n    environment:\n      - PORT=3000\n      - STUDIO_PG_META_URL=http://meta:8080\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - DEFAULT_ORGANIZATION_NAME=Default Organization\n      - DEFAULT_PROJECT_NAME=Default Project\n      - SUPABASE_URL=http://kong:8000\n      - SUPABASE_PUBLIC_URL=http://localhost:{{PORT}}\n      - SUPABASE_ANON_KEY={{ANON_KEY}}\n      - SUPABASE_SERVICE_KEY={{SERVICE_ROLE_KEY}}\n      - AUTH_JWT_SECRET={{JWT_SECRET}}\n      - NEXT_PUBLIC_ENABLE_LOGS=true\n      - NEXT_ANALYTICS_BACKEND_PROVIDER=postgres\n    restart: unless-stopped\n    depends_on:\n      - meta\n      - rest\n\n  db:\n    image: postgres:16-alpine\n    ports:\n      - \"{{DB_PORT}}:5432\"\n    environment:\n      - POSTGRES_PASSWORD={{POSTGRES_PASSWORD}}\n      - POSTGRES_USER=postgres\n      - POSTGRES_DB=postgres\n    volumes:\n      - db_data:/var/lib/postgresql/data\n      - ./init-supabase-full.sql:/docker-entrypoint-initdb.d/01-init-roles.sql\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d postgres\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 60s\n\nvolumes:\n  db_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "POSTGRES_PASSWORD",
+          "description": "PostgreSQL password (alphanumeric only recommended)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "JWT_SECRET",
+          "description": "JWT secret for API authentication (min 32 characters)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DASHBOARD_USERNAME",
+          "description": "Username for Supabase Studio login",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "DASHBOARD_PASSWORD",
+          "description": "Password for Supabase Studio login",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "ANON_KEY",
+          "description": "Anonymous API key (auto-generated JWT if empty)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "SERVICE_ROLE_KEY",
+          "description": "Service role API key (auto-generated JWT if empty)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "SMTP_HOST",
+          "description": "SMTP server hostname (e.g., smtp.gmail.com, smtp.sendgrid.net)",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "SMTP_PORT",
+          "description": "SMTP server port (587 for TLS, 465 for SSL)",
+          "required": false,
+          "default": "587",
+          "type": "string"
+        },
+        {
+          "key": "SMTP_USER",
+          "description": "SMTP username/email for authentication",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "SMTP_PASS",
+          "description": "SMTP password or app-specific password",
+          "required": false,
+          "type": "secret"
+        },
+        {
+          "key": "SMTP_SENDER_EMAIL",
+          "description": "From email address for outgoing emails",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "SMTP_SENDER_NAME",
+          "description": "From name for outgoing emails",
+          "required": false,
+          "default": "Supabase",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Kong API Gateway port",
+          "default": "8000"
+        },
+        {
+          "name": "KONG_HTTPS_PORT",
+          "description": "Kong HTTPS port",
+          "default": "8443"
+        },
+        {
+          "name": "DB_PORT",
+          "description": "PostgreSQL port (for direct access)",
+          "default": "5432"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "JWT secret (min 32 chars)",
+          "default": ""
+        },
+        {
+          "name": "DASHBOARD_USERNAME",
+          "description": "Studio login username",
+          "default": "admin"
+        },
+        {
+          "name": "DASHBOARD_PASSWORD",
+          "description": "Studio login password",
+          "default": ""
+        },
+        {
+          "name": "ANON_KEY",
+          "description": "Anonymous API key",
+          "default": ""
+        },
+        {
+          "name": "SERVICE_ROLE_KEY",
+          "description": "Service role API key",
+          "default": ""
+        },
+        {
+          "name": "SMTP_HOST",
+          "description": "SMTP server hostname",
+          "default": ""
+        },
+        {
+          "name": "SMTP_PORT",
+          "description": "SMTP port",
+          "default": "587"
+        },
+        {
+          "name": "SMTP_USER",
+          "description": "SMTP username",
+          "default": ""
+        },
+        {
+          "name": "SMTP_PASS",
+          "description": "SMTP password",
+          "default": ""
+        },
+        {
+          "name": "SMTP_SENDER_EMAIL",
+          "description": "From email address",
+          "default": ""
+        },
+        {
+          "name": "SMTP_SENDER_NAME",
+          "description": "From name",
+          "default": "Supabase"
+        }
+      ],
+      "documentation": "## Supabase Full Stack\n\nComplete Supabase self-hosted setup with Kong, GoTrue Auth, Realtime, and Studio.\n\nFirst deployment takes 2-3 minutes as all 7 services start up.\n\n### Email Configuration\nTo enable email invites and password reset:\n1. Configure SMTP settings in Environment tab\n2. Redeploy to apply changes\n\nPopular SMTP providers:\n- **Gmail**: smtp.gmail.com:587 (requires App Password)\n- **SendGrid**: smtp.sendgrid.net:587\n- **Mailgun**: smtp.mailgun.org:587\n- **AWS SES**: email-smtp.{region}.amazonaws.com:587",
+      "externalAccessInstructions": "- Studio: http://YOUR_SERVER_IP:{{PORT}}/\n- REST API: http://YOUR_SERVER_IP:{{PORT}}/rest/v1/",
+      "securityNotes": "- Kong protects Studio with HTTP Basic Auth\n- JWT_SECRET must be at least 32 characters",
+      "postDeploymentSteps": "1. Access Studio at http://YOUR_SERVER:{{PORT}}/\n2. Create database tables\n3. Set up Row Level Security"
+    },
+    {
+      "id": "builtin-appwrite",
+      "name": "Appwrite",
+      "description": "Open-source backend-as-a-service platform - self-hosted Firebase alternative",
+      "parentCategory": "development",
+      "subCategory": "baas",
+      "category": "development",
+      "appType": "service",
+      "icon": "🔥",
+      "minMemoryMB": 2048,
+      "recommendedPort": 80,
+      "compose": "services:\n  appwrite:\n    image: appwrite/appwrite:1.6\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - _APP_ENV=production\n      - _APP_OPENSSL_KEY_V1={{OPENSSL_KEY}}\n      - _APP_DOMAIN={{APP_DOMAIN}}\n      - _APP_DOMAIN_TARGET={{APP_DOMAIN}}\n      - _APP_REDIS_HOST=redis\n      - _APP_REDIS_PORT=6379\n      - _APP_DB_HOST=mariadb\n      - _APP_DB_PORT=3306\n      - _APP_DB_SCHEMA=appwrite\n      - _APP_DB_USER=appwrite\n      - _APP_DB_PASS={{DB_PASSWORD}}\n      - _APP_INFLUXDB_HOST=influxdb\n      - _APP_INFLUXDB_PORT=8086\n      - _APP_STORAGE_LIMIT=30000000\n      - _APP_FUNCTIONS_TIMEOUT=900\n      - _APP_EXECUTOR_SECRET={{EXECUTOR_SECRET}}\n      - _APP_LOGGING_PROVIDER=\n      - _APP_LOGGING_CONFIG=\n    volumes:\n      - appwrite_uploads:/storage/uploads\n      - appwrite_cache:/storage/cache\n      - appwrite_certificates:/storage/certificates\n      - appwrite_functions:/storage/functions\n    restart: unless-stopped\n    depends_on:\n      - mariadb\n      - redis\n      - influxdb\n\n  mariadb:\n    image: mariadb:10.11\n    environment:\n      - MYSQL_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MYSQL_DATABASE=appwrite\n      - MYSQL_USER=appwrite\n      - MYSQL_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - mariadb_data:/var/lib/mysql\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} || exit 1\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 60s\n\n  redis:\n    image: redis:7-alpine\n    volumes:\n      - redis_data:/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"redis-cli\", \"ping\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\n  influxdb:\n    image: influxdb:1.8-alpine\n    volumes:\n      - influxdb_data:/var/lib/influxdb\n    restart: unless-stopped\n\nvolumes:\n  appwrite_uploads:\n  appwrite_cache:\n  appwrite_certificates:\n  appwrite_functions:\n  mariadb_data:\n  redis_data:\n  influxdb_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "OPENSSL_KEY",
+          "description": "OpenSSL encryption key (128 characters hex)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "MariaDB appwrite user password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "MariaDB root password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "EXECUTOR_SECRET",
+          "description": "Secret for function executor communication",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "APP_DOMAIN",
+          "description": "Domain or IP where Appwrite will be accessed",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "80"
+        },
+        {
+          "name": "OPENSSL_KEY",
+          "description": "OpenSSL encryption key",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "Database root password",
+          "default": ""
+        },
+        {
+          "name": "EXECUTOR_SECRET",
+          "description": "Executor secret",
+          "default": ""
+        },
+        {
+          "name": "APP_DOMAIN",
+          "description": "Domain or IP where Appwrite is accessed",
+          "default": ""
+        }
+      ],
+      "documentation": "## Appwrite Deployment\n\nAppwrite is a Firebase alternative with Auth, Database, Storage, and Functions.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep OPENSSL_KEY secure\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Create your admin account\n2. Create your first project"
+    },
+    {
+      "id": "builtin-pocketbase",
+      "name": "PocketBase",
+      "description": "Open-source backend in a single file with realtime database, auth, and file storage",
+      "parentCategory": "development",
+      "subCategory": "baas",
+      "category": "development",
+      "appType": "service",
+      "requiresBuild": true,
+      "icon": "📦",
+      "minMemoryMB": 256,
+      "recommendedPort": 8090,
+      "compose": "services:\n  pocketbase:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"{{PORT}}:8090\"\n    volumes:\n      - pb_data:/pb/pb_data\n      - pb_public:/pb/pb_public\n    restart: unless-stopped\n\nvolumes:\n  pb_data:\n  pb_public:\n",
+      "dockerfile": "FROM alpine:latest\n\nARG PB_VERSION=0.36.1\n\nRUN apk add --no-cache \\\n    unzip \\\n    ca-certificates\n\nADD https://github.com/pocketbase/pocketbase/releases/download/v${PB_VERSION}/pocketbase_${PB_VERSION}_linux_amd64.zip /tmp/pb.zip\nRUN unzip /tmp/pb.zip -d /pb/ \\\n    && rm /tmp/pb.zip\n\nEXPOSE 8090\n\nCMD [\"/pb/pocketbase\", \"serve\", \"--http=0.0.0.0:8090\"]\n",
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "8090"
+        }
+      ],
+      "documentation": "## PocketBase Deployment\n\nPocketBase is a lightweight backend with realtime SQLite database, auth, and file storage.",
+      "externalAccessInstructions": "- Admin UI: http://YOUR_SERVER_IP:{{PORT}}/_/\n- API: http://YOUR_SERVER_IP:{{PORT}}/api/",
+      "securityNotes": "- Create a strong admin password on first access\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Access admin UI at /_/\n2. Create your admin account\n3. Create collections"
+    },
+    {
+      "id": "builtin-n8n",
+      "name": "n8n",
+      "description": "Workflow automation platform - self-hosted alternative to Zapier",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "appType": "service",
+      "icon": "🔄",
+      "minMemoryMB": 512,
+      "recommendedPort": 5678,
+      "compose": "services:\n  n8n:\n    image: docker.n8n.io/n8nio/n8n\n    ports:\n      - \"{{PORT}}:5678\"\n    environment:\n      - GENERIC_TIMEZONE={{TIMEZONE}}\n      - TZ={{TIMEZONE}}\n      - N8N_ENCRYPTION_KEY={{N8N_ENCRYPTION_KEY}}\n      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true\n      - N8N_RUNNERS_ENABLED=true\n      - N8N_SECURE_COOKIE=false\n    volumes:\n      - n8n_data:/home/node/.n8n\n    restart: unless-stopped\n\nvolumes:\n  n8n_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "N8N_ENCRYPTION_KEY",
+          "description": "Encryption key for credentials storage (min 16 characters)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "TIMEZONE",
+          "description": "Server timezone (e.g., America/New_York)",
+          "required": false,
+          "default": "UTC",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "5678"
+        },
+        {
+          "name": "TIMEZONE",
+          "description": "Server timezone",
+          "default": "UTC"
+        },
+        {
+          "name": "N8N_ENCRYPTION_KEY",
+          "description": "Encryption key for credentials",
+          "default": ""
+        }
+      ],
+      "documentation": "## n8n Deployment\n\nn8n is a powerful workflow automation tool, similar to Zapier or Make.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep N8N_ENCRYPTION_KEY secret and backed up\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Create your owner account\n2. Set up your first workflow"
+    },
+    {
+      "id": "builtin-nocodb",
+      "name": "NocoDB",
+      "description": "Open-source Airtable alternative - turn any database into a smart spreadsheet",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "appType": "service",
+      "icon": "📊",
+      "minMemoryMB": 256,
+      "recommendedPort": 8080,
+      "compose": "services:\n  nocodb:\n    image: nocodb/nocodb:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - NC_DB=pg://db:5432?u={{DB_USER}}&p={{DB_PASSWORD}}&d={{DB_NAME}}\n      - NC_AUTH_JWT_SECRET={{JWT_SECRET}}\n      - NC_PUBLIC_URL={{NC_PUBLIC_URL}}\n      - NC_DISABLE_TELE={{NC_DISABLE_TELE}}\n    volumes:\n      - nocodb_data:/usr/app/data\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_DB={{DB_NAME}}\n      - POSTGRES_USER={{DB_USER}}\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - db_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{DB_USER}} -d {{DB_NAME}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n\nvolumes:\n  nocodb_data:\n  db_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "NC_PUBLIC_URL",
+          "description": "Public URL where NocoDB will be accessed",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "NC_DISABLE_TELE",
+          "description": "Disable anonymous telemetry (true/false)",
+          "required": false,
+          "default": "false",
+          "type": "string"
+        },
+        {
+          "key": "DB_NAME",
+          "description": "PostgreSQL database name",
+          "required": true,
+          "default": "nocodb",
+          "type": "string"
+        },
+        {
+          "key": "DB_USER",
+          "description": "PostgreSQL database user",
+          "required": true,
+          "default": "nocodb",
+          "type": "string"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "PostgreSQL database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "JWT_SECRET",
+          "description": "Secret for JWT authentication",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "8080"
+        },
+        {
+          "name": "NC_PUBLIC_URL",
+          "description": "Public URL",
+          "default": ""
+        },
+        {
+          "name": "NC_DISABLE_TELE",
+          "description": "Disable telemetry (true/false)",
+          "default": "false"
+        },
+        {
+          "name": "DB_NAME",
+          "description": "Database name",
+          "default": "nocodb"
+        },
+        {
+          "name": "DB_USER",
+          "description": "Database user",
+          "default": "nocodb"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "JWT secret",
+          "default": ""
+        }
+      ],
+      "documentation": "## NocoDB Deployment\n\nNocoDB turns any database into a smart spreadsheet interface.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep JWT_SECRET secure\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Create super admin account\n2. Create your first base"
+    },
+    {
+      "id": "builtin-activepieces",
+      "name": "Activepieces",
+      "description": "Open-source workflow automation platform - self-hosted Zapier alternative",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "appType": "service",
+      "icon": "🧩",
+      "minMemoryMB": 512,
+      "recommendedPort": 8080,
+      "compose": "services:\n  activepieces:\n    image: activepieces/activepieces:latest\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - AP_ENGINE_EXECUTABLE_PATH=dist/packages/engine/main.js\n      - AP_ENCRYPTION_KEY={{ENCRYPTION_KEY}}\n      - AP_JWT_SECRET={{JWT_SECRET}}\n      - AP_FRONTEND_URL=http://localhost:{{PORT}}\n      - AP_POSTGRES_DATABASE={{DB_NAME}}\n      - AP_POSTGRES_HOST=db\n      - AP_POSTGRES_PORT=5432\n      - AP_POSTGRES_USERNAME={{DB_USER}}\n      - AP_POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - AP_REDIS_HOST=redis\n      - AP_REDIS_PORT=6379\n      - AP_SANDBOX_RUN_TIME_SECONDS=600\n      - AP_TELEMETRY_ENABLED=false\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n      redis:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_DB={{DB_NAME}}\n      - POSTGRES_USER={{DB_USER}}\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - db_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{DB_USER}} -d {{DB_NAME}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n\n  redis:\n    image: redis:7-alpine\n    volumes:\n      - redis_data:/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD\", \"redis-cli\", \"ping\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  db_data:\n  redis_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ENCRYPTION_KEY",
+          "description": "Encryption key for sensitive data (32 characters)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "JWT_SECRET",
+          "description": "Secret for JWT authentication",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_NAME",
+          "description": "PostgreSQL database name",
+          "required": true,
+          "default": "activepieces",
+          "type": "string"
+        },
+        {
+          "key": "DB_USER",
+          "description": "PostgreSQL database user",
+          "required": true,
+          "default": "activepieces",
+          "type": "string"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "PostgreSQL database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "8080"
+        },
+        {
+          "name": "ENCRYPTION_KEY",
+          "description": "Encryption key (32 chars)",
+          "default": ""
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "JWT secret",
+          "default": ""
+        },
+        {
+          "name": "DB_NAME",
+          "description": "Database name",
+          "default": "activepieces"
+        },
+        {
+          "name": "DB_USER",
+          "description": "Database user",
+          "default": "activepieces"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        }
+      ],
+      "documentation": "## Activepieces Deployment\n\nActivepieces is a workflow automation platform with 100+ integrations.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep ENCRYPTION_KEY secure\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Create your admin account\n2. Create your first flow"
+    },
+    {
+      "id": "builtin-budibase",
+      "name": "Budibase",
+      "description": "Open-source low-code platform for building internal tools and admin panels",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "appType": "service",
+      "icon": "🏗️",
+      "minMemoryMB": 1024,
+      "recommendedPort": 80,
+      "compose": "services:\n  budibase:\n    image: budibase/budibase:latest\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - JWT_SECRET={{JWT_SECRET}}\n      - MINIO_ACCESS_KEY={{MINIO_ACCESS_KEY}}\n      - MINIO_SECRET_KEY={{MINIO_SECRET_KEY}}\n      - INTERNAL_API_KEY={{INTERNAL_API_KEY}}\n      - COUCHDB_USER={{COUCHDB_USER}}\n      - COUCHDB_PASSWORD={{COUCHDB_PASSWORD}}\n    volumes:\n      - budibase_data:/data\n    restart: unless-stopped\n\nvolumes:\n  budibase_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "JWT_SECRET",
+          "description": "Secret for JWT authentication",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "MINIO_ACCESS_KEY",
+          "description": "MinIO access key for file storage",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "MINIO_SECRET_KEY",
+          "description": "MinIO secret key for file storage",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "INTERNAL_API_KEY",
+          "description": "Internal API key for service communication",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "COUCHDB_USER",
+          "description": "CouchDB admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "COUCHDB_PASSWORD",
+          "description": "CouchDB admin password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "80"
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "JWT secret",
+          "default": ""
+        },
+        {
+          "name": "MINIO_ACCESS_KEY",
+          "description": "MinIO access key",
+          "default": ""
+        },
+        {
+          "name": "MINIO_SECRET_KEY",
+          "description": "MinIO secret key",
+          "default": ""
+        },
+        {
+          "name": "INTERNAL_API_KEY",
+          "description": "Internal API key",
+          "default": ""
+        },
+        {
+          "name": "COUCHDB_USER",
+          "description": "CouchDB username",
+          "default": "admin"
+        },
+        {
+          "name": "COUCHDB_PASSWORD",
+          "description": "CouchDB password",
+          "default": ""
+        }
+      ],
+      "documentation": "## Budibase Deployment\n\nBudibase is a low-code platform for building internal tools with drag-and-drop.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep all secrets secure\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Create your admin account\n2. Create your first app"
+    },
+    {
+      "id": "builtin-nodered",
+      "name": "Node-RED",
+      "description": "Flow-based programming for IoT, automation, and API orchestration",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "appType": "service",
+      "icon": "🔴",
+      "minMemoryMB": 256,
+      "recommendedPort": 1880,
+      "compose": "services:\n  nodered:\n    image: nodered/node-red:latest\n    ports:\n      - \"{{PORT}}:1880\"\n    environment:\n      - TZ={{TIMEZONE}}\n      - NODE_RED_CREDENTIAL_SECRET={{CREDENTIAL_SECRET}}\n    volumes:\n      - nodered_data:/data\n    restart: unless-stopped\n\nvolumes:\n  nodered_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "CREDENTIAL_SECRET",
+          "description": "Secret key for encrypting credentials in flows",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "TIMEZONE",
+          "description": "Server timezone (e.g., America/New_York)",
+          "required": false,
+          "default": "UTC",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "1880"
+        },
+        {
+          "name": "CREDENTIAL_SECRET",
+          "description": "Credential encryption secret",
+          "default": ""
+        },
+        {
+          "name": "TIMEZONE",
+          "description": "Server timezone",
+          "default": "UTC"
+        }
+      ],
+      "documentation": "## Node-RED Deployment\n\nNode-RED is a flow-based programming tool for IoT and automation.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Node-RED has no authentication by default! Configure it in settings.js",
+      "postDeploymentSteps": "1. Configure authentication\n2. Install additional nodes\n3. Create your first flow"
+    },
+    {
+      "id": "builtin-tooljet",
+      "name": "ToolJet",
+      "description": "Open-source low-code platform for building internal tools with drag-and-drop",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "appType": "service",
+      "icon": "🛠️",
+      "minMemoryMB": 1024,
+      "recommendedPort": 80,
+      "compose": "services:\n  tooljet:\n    image: tooljet/tooljet:ee-lts-latest\n    tty: true\n    stdin_open: true\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - SERVE_CLIENT=true\n      - PORT=80\n      - TOOLJET_HOST=http://localhost:{{PORT}}\n      - LOCKBOX_MASTER_KEY={{LOCKBOX_MASTER_KEY}}\n      - SECRET_KEY_BASE={{SECRET_KEY_BASE}}\n      - PG_HOST=db\n      - PG_PORT=5432\n      - PG_USER={{DB_USER}}\n      - PG_PASS={{DB_PASSWORD}}\n      - PG_DB={{DB_NAME}}\n      - ENABLE_TOOLJET_DB=true\n      - TOOLJET_DB={{DB_NAME}}_db\n      - TOOLJET_DB_HOST=db\n      - TOOLJET_DB_PORT=5432\n      - TOOLJET_DB_USER={{DB_USER}}\n      - TOOLJET_DB_PASS={{DB_PASSWORD}}\n    command: npm run start:prod\n    restart: always\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_DB={{DB_NAME}}\n      - POSTGRES_USER={{DB_USER}}\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: always\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{DB_USER}} -d {{DB_NAME}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "LOCKBOX_MASTER_KEY",
+          "description": "Master key for encrypting datasource credentials (32 bytes hex)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "SECRET_KEY_BASE",
+          "description": "Secret key for session encryption (64 bytes hex)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_NAME",
+          "description": "PostgreSQL database name",
+          "required": true,
+          "default": "tooljet",
+          "type": "string"
+        },
+        {
+          "key": "DB_USER",
+          "description": "PostgreSQL database user",
+          "required": true,
+          "default": "tooljet",
+          "type": "string"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "PostgreSQL database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "80"
+        },
+        {
+          "name": "LOCKBOX_MASTER_KEY",
+          "description": "Lockbox master key (32 bytes hex)",
+          "default": ""
+        },
+        {
+          "name": "SECRET_KEY_BASE",
+          "description": "Secret key base (64 bytes hex)",
+          "default": ""
+        },
+        {
+          "name": "DB_NAME",
+          "description": "Database name",
+          "default": "tooljet"
+        },
+        {
+          "name": "DB_USER",
+          "description": "Database user",
+          "default": "tooljet"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        }
+      ],
+      "documentation": "## ToolJet Deployment\n\nToolJet is a low-code platform for building internal tools with 45+ UI components.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep LOCKBOX_MASTER_KEY secure\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Create your workspace and admin account\n2. Create your first application"
+    },
+    {
+      "id": "builtin-baserow",
+      "name": "Baserow",
+      "description": "Open-source no-code database and Airtable alternative",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "appType": "service",
+      "icon": "📋",
+      "minMemoryMB": 512,
+      "recommendedPort": 4000,
+      "compose": "services:\n  baserow:\n    image: baserow/baserow:2.0.6\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - BASEROW_PUBLIC_URL={{BASEROW_PUBLIC_URL}}\n      - BASEROW_CADDY_ADDRESSES=:80\n      - SECRET_KEY={{SECRET_KEY}}\n      - DATABASE_PASSWORD={{DATABASE_PASSWORD}}\n      - REDIS_PASSWORD={{REDIS_PASSWORD}}\n    volumes:\n      - baserow_data:/baserow/data\n    restart: unless-stopped\n\nvolumes:\n  baserow_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "BASEROW_PUBLIC_URL",
+          "description": "Public URL where Baserow will be accessed",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Django secret key for cryptographic signing",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DATABASE_PASSWORD",
+          "description": "PostgreSQL database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "REDIS_PASSWORD",
+          "description": "Redis password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "4000"
+        },
+        {
+          "name": "BASEROW_PUBLIC_URL",
+          "description": "Public URL",
+          "default": ""
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Django secret key",
+          "default": ""
+        },
+        {
+          "name": "DATABASE_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "REDIS_PASSWORD",
+          "description": "Redis password",
+          "default": ""
+        }
+      ],
+      "documentation": "## Baserow Deployment\n\nBaserow is an open-source no-code database platform and Airtable alternative.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- BASEROW_PUBLIC_URL must match the URL you access it with\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Create your account\n2. Create your first database"
+    },
+    {
+      "id": "builtin-nextjs",
+      "name": "Next.js",
+      "description": "Production-ready Next.js application (requires existing Next.js project with package.json)",
+      "parentCategory": "development",
+      "subCategory": "frameworks",
+      "category": "development",
+      "icon": "⚛️",
+      "minMemoryMB": 512,
+      "recommendedPort": 3000,
+      "compose": "services:\n  app:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"{{PORT}}:3000\"\n    environment:\n      - NODE_ENV=production\n      - PORT=3000\n      - HOSTNAME=0.0.0.0\n      - NEXT_TELEMETRY_DISABLED=1\n    restart: unless-stopped\n",
+      "dockerfile": "FROM node:20-alpine AS base\nRUN apk add --no-cache libc6-compat\nWORKDIR /app\n\nFROM base AS deps\nCOPY package.json package-lock.json* yarn.lock* pnpm-lock.yaml* ./\nRUN \\\n  if [ -f yarn.lock ]; then yarn install --frozen-lockfile; \\\n  elif [ -f package-lock.json ]; then npm ci; \\\n  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm install --frozen-lockfile; \\\n  else npm install; \\\n  fi\n\nFROM base AS builder\nWORKDIR /app\nCOPY --from=deps /app/node_modules ./node_modules\nCOPY . .\nRUN rm -rf .next\nENV NODE_ENV=production\nENV NEXT_TELEMETRY_DISABLED=1\nARG SERVER_COMPASS_NEXT_PUBLIC_ENV_B64\nRUN set -e; if [ -n \"$SERVER_COMPASS_NEXT_PUBLIC_ENV_B64\" ]; then echo \"$SERVER_COMPASS_NEXT_PUBLIC_ENV_B64\" | base64 -d > .env.production.local; fi; npm run build\n\nFROM base AS runner\nWORKDIR /app\nENV NODE_ENV=production\nENV NEXT_TELEMETRY_DISABLED=1\nENV PORT=3000\nRUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs\nCOPY --from=builder --chown=nextjs:nodejs /app/.next ./.next\nCOPY --from=builder --chown=nextjs:nodejs /app/public ./public\nCOPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json\nCOPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules\nUSER nextjs\nEXPOSE 3000\nCMD [\"npm\", \"start\"]\n",
+      "envHints": [
+        {
+          "key": "NODE_ENV",
+          "description": "Node environment",
+          "required": true,
+          "default": "production",
+          "type": "string"
+        },
+        {
+          "key": "NEXT_PUBLIC_API_URL",
+          "description": "Public API URL for frontend",
+          "required": false,
+          "type": "string"
+        },
+        {
+          "key": "DATABASE_URL",
+          "description": "Database connection string",
+          "required": false,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "3000"
+        }
+      ],
+      "documentation": "## Next.js Deployment\n\nRequires an existing Next.js project with package.json.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Set strong environment variables for secrets\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Test the application\n2. Set up reverse proxy for HTTPS"
+    },
+    {
+      "id": "builtin-django",
+      "name": "Django",
+      "description": "Production-ready Django application with PostgreSQL and Gunicorn",
+      "parentCategory": "development",
+      "subCategory": "frameworks",
+      "category": "development",
+      "icon": "🎸",
+      "minMemoryMB": 512,
+      "recommendedPort": 8000,
+      "compose": "services:\n  django:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"{{PORT}}:8000\"\n    environment:\n      - DJANGO_SETTINGS_MODULE={{DJANGO_SETTINGS_MODULE}}\n      - WSGI_APPLICATION={{WSGI_APPLICATION}}\n      - SECRET_KEY={{SECRET_KEY}}\n      - DATABASE_URL=postgresql://{{DB_USER}}:{{DB_PASSWORD}}@db:5432/{{DB_NAME}}\n      - ALLOWED_HOSTS={{ALLOWED_HOSTS}}\n      - DEBUG=False\n    volumes:\n      - static_volume:/app/staticfiles\n      - media_volume:/app/media\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_DB={{DB_NAME}}\n      - POSTGRES_USER={{DB_USER}}\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U {{DB_USER}} -d {{DB_NAME}}\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  postgres_data:\n  static_volume:\n  media_volume:\n",
+      "dockerfile": "FROM python:3.12-slim as builder\n\nENV PYTHONDONTWRITEBYTECODE=1 \\\n    PYTHONUNBUFFERED=1 \\\n    PIP_NO_CACHE_DIR=1 \\\n    PIP_DISABLE_PIP_VERSION_CHECK=1\n\nWORKDIR /app\n\nRUN apt-get update && apt-get install -y \\\n    gcc \\\n    postgresql-client \\\n    && rm -rf /var/lib/apt/lists/*\n\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt gunicorn\n\nFROM python:3.12-slim\n\nENV PYTHONDONTWRITEBYTECODE=1 \\\n    PYTHONUNBUFFERED=1 \\\n    WSGI_APPLICATION=config.wsgi:application\n\nWORKDIR /app\n\nRUN apt-get update && apt-get install -y \\\n    postgresql-client \\\n    curl \\\n    && rm -rf /var/lib/apt/lists/*\n\nCOPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages\nCOPY --from=builder /usr/local/bin /usr/local/bin\n\nCOPY . .\n\nRUN python manage.py collectstatic --noinput || echo \"Static collection skipped\"\n\nRUN useradd -m -u 1000 django && chown -R django:django /app\nUSER django\n\nEXPOSE 8000\n\nCMD sh -c \"gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 60 --access-logfile - --error-logfile - ${WSGI_APPLICATION}\"\n",
+      "envHints": [
+        {
+          "key": "DJANGO_SETTINGS_MODULE",
+          "description": "Django settings module path",
+          "required": true,
+          "default": "config.settings",
+          "type": "string"
+        },
+        {
+          "key": "WSGI_APPLICATION",
+          "description": "WSGI application path",
+          "required": true,
+          "default": "config.wsgi:application",
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Django secret key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_NAME",
+          "description": "PostgreSQL database name",
+          "required": true,
+          "default": "django_db",
+          "type": "string"
+        },
+        {
+          "key": "DB_USER",
+          "description": "PostgreSQL database user",
+          "required": true,
+          "default": "django",
+          "type": "string"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "PostgreSQL database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "ALLOWED_HOSTS",
+          "description": "Comma-separated list of allowed hosts",
+          "required": true,
+          "default": "*",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Django application port",
+          "default": "8000"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Django secret key",
+          "default": ""
+        },
+        {
+          "name": "DB_NAME",
+          "description": "Database name",
+          "default": "django_db"
+        },
+        {
+          "name": "DB_USER",
+          "description": "Database user",
+          "default": "django"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "DJANGO_SETTINGS_MODULE",
+          "description": "Settings module",
+          "default": "config.settings"
+        },
+        {
+          "name": "WSGI_APPLICATION",
+          "description": "WSGI application path",
+          "default": "config.wsgi:application"
+        },
+        {
+          "name": "ALLOWED_HOSTS",
+          "description": "Allowed hosts",
+          "default": "*"
+        }
+      ],
+      "documentation": "## Django Deployment\n\nProduction-ready Django setup with PostgreSQL and Gunicorn.\n\nRequires a Django project with requirements.txt.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep SECRET_KEY secure\n- Set specific ALLOWED_HOSTS in production",
+      "postDeploymentSteps": "1. Run migrations: docker exec <container> python manage.py migrate\n2. Create superuser account"
+    },
+    {
+      "id": "builtin-flask",
+      "name": "Flask",
+      "description": "Python Flask application with Gunicorn WSGI server",
+      "parentCategory": "development",
+      "subCategory": "frameworks",
+      "category": "development",
+      "icon": "🧪",
+      "minMemoryMB": 256,
+      "recommendedPort": 5000,
+      "compose": "services:\n  flask:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"{{PORT}}:5000\"\n    environment:\n      - FLASK_APP={{FLASK_APP}}\n      - FLASK_ENV=production\n      - WSGI_MODULE={{WSGI_MODULE}}\n      - SECRET_KEY={{SECRET_KEY}}\n      - DATABASE_URL={{DATABASE_URL}}\n    restart: unless-stopped\n",
+      "dockerfile": "FROM python:3.11-slim\n\nENV PYTHONDONTWRITEBYTECODE=1 \\\n    PYTHONUNBUFFERED=1 \\\n    WSGI_MODULE=app:app\n\nWORKDIR /app\n\nRUN apt-get update && apt-get install -y \\\n    curl \\\n    && rm -rf /var/lib/apt/lists/*\n\nCOPY . .\n\nRUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi\nRUN pip install --no-cache-dir gunicorn\n\nRUN useradd -m -u 1000 flask && chown -R flask:flask /app\nUSER flask\n\nEXPOSE 5000\n\nCMD sh -c \"gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 60 --access-logfile - --error-logfile - ${WSGI_MODULE}\"\n",
+      "envHints": [
+        {
+          "key": "FLASK_APP",
+          "description": "Flask application entry point",
+          "required": true,
+          "default": "app.py",
+          "type": "string"
+        },
+        {
+          "key": "WSGI_MODULE",
+          "description": "Gunicorn WSGI module path",
+          "required": true,
+          "default": "app:app",
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Flask secret key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DATABASE_URL",
+          "description": "Database connection string (optional)",
+          "required": false,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Application port",
+          "default": "5000"
+        },
+        {
+          "name": "FLASK_APP",
+          "description": "Flask app entry point",
+          "default": "app.py"
+        },
+        {
+          "name": "WSGI_MODULE",
+          "description": "Gunicorn WSGI module",
+          "default": "app:app"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Flask secret key",
+          "default": ""
+        },
+        {
+          "name": "DATABASE_URL",
+          "description": "Database URL",
+          "default": ""
+        }
+      ],
+      "documentation": "## Flask Deployment\n\nFlask application with Gunicorn WSGI server.\n\nRequires a Flask project with app.py.",
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Keep SECRET_KEY secure\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Test the application\n2. Set up reverse proxy for HTTPS"
+    },
+    {
+      "id": "builtin-fastapi",
+      "name": "FastAPI",
+      "description": "Modern Python FastAPI framework with async support and Uvicorn ASGI server",
+      "parentCategory": "development",
+      "subCategory": "frameworks",
+      "category": "development",
+      "icon": "⚡",
+      "minMemoryMB": 256,
+      "recommendedPort": 8000,
+      "compose": "services:\n  fastapi:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"{{PORT}}:8000\"\n    environment:\n      - ENVIRONMENT=production\n      - APP_MODULE={{APP_MODULE}}\n      - DATABASE_URL={{DATABASE_URL}}\n      - SECRET_KEY={{SECRET_KEY}}\n      - CORS_ORIGINS={{CORS_ORIGINS}}\n    restart: unless-stopped\n",
+      "dockerfile": "FROM python:3.11-slim as builder\n\nENV PYTHONDONTWRITEBYTECODE=1 \\\n    PYTHONUNBUFFERED=1 \\\n    PIP_NO_CACHE_DIR=1\n\nWORKDIR /app\n\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\n\nFROM python:3.11-slim\n\nENV PYTHONDONTWRITEBYTECODE=1 \\\n    PYTHONUNBUFFERED=1 \\\n    APP_MODULE=main:app\n\nWORKDIR /app\n\nRUN apt-get update && apt-get install -y \\\n    curl \\\n    && rm -rf /var/lib/apt/lists/*\n\nCOPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages\nCOPY --from=builder /usr/local/bin /usr/local/bin\n\nCOPY . .\n\nRUN useradd -m -u 1000 fastapi && chown -R fastapi:fastapi /app\nUSER fastapi\n\nEXPOSE 8000\n\nCMD sh -c \"uvicorn ${APP_MODULE} --host 0.0.0.0 --port 8000 --workers 4 --log-level info\"\n",
+      "envHints": [
+        {
+          "key": "ENVIRONMENT",
+          "description": "Application environment",
+          "required": true,
+          "default": "production",
+          "type": "string"
+        },
+        {
+          "key": "APP_MODULE",
+          "description": "Uvicorn application module path",
+          "required": true,
+          "default": "main:app",
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Secret key for JWT tokens",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DATABASE_URL",
+          "description": "Database connection string",
+          "required": false,
+          "type": "secret"
+        },
+        {
+          "key": "CORS_ORIGINS",
+          "description": "Comma-separated list of allowed CORS origins",
+          "required": false,
+          "default": "*",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Application port",
+          "default": "8000"
+        },
+        {
+          "name": "APP_MODULE",
+          "description": "Uvicorn app module",
+          "default": "main:app"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Secret key",
+          "default": ""
+        },
+        {
+          "name": "DATABASE_URL",
+          "description": "Database URL",
+          "default": ""
+        },
+        {
+          "name": "CORS_ORIGINS",
+          "description": "CORS origins",
+          "default": "*"
+        }
+      ],
+      "documentation": "## FastAPI Deployment\n\nModern Python FastAPI with Uvicorn ASGI server.\n\nRequires a FastAPI project with main.py.",
+      "externalAccessInstructions": "- API: http://YOUR_SERVER_IP:{{PORT}}\n- Docs: http://YOUR_SERVER_IP:{{PORT}}/docs",
+      "securityNotes": "- Keep SECRET_KEY secure\n- Set specific CORS_ORIGINS in production",
+      "postDeploymentSteps": "1. Test API endpoints\n2. Verify interactive documentation at /docs"
+    },
+    {
+      "id": "builtin-openclaw",
+      "name": "OpenClaw",
+      "description": "AI agent gateway - personal Claude-powered assistant with sandboxed tool execution",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "category": "development",
+      "icon": "🧠",
+      "minMemoryMB": 2048,
+      "recommendedPort": 18789,
+      "compose": "services:\n  openclaw-gateway:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"127.0.0.1:{{PORT}}:18789\"\n      - \"127.0.0.1:{{BRIDGE_PORT}}:18790\"\n    environment:\n      HOME: \"/home/node\"\n      TERM: \"xterm-256color\"\n      NODE_ENV: \"production\"\n      OPENCLAW_GATEWAY_TOKEN: \"{{GATEWAY_TOKEN}}\"\n    volumes:\n      - ./.openclaw:/home/node/.openclaw\n      - ./.openclaw/workspace:/home/node/.openclaw/workspace\n    init: true\n    restart: unless-stopped\n    command:\n      - \"openclaw\"\n      - \"gateway\"\n      - \"--allow-unconfigured\"\n      - \"--bind\"\n      - \"lan\"\n      - \"--port\"\n      - \"18789\"\n",
+      "preDeployCommands": [
+        "mkdir -p {{STACK_DIR}}/.openclaw/workspace",
+        "printf '{\"gateway\":{\"controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}' > {{STACK_DIR}}/.openclaw/openclaw.json",
+        "chown -R 1000:1000 {{STACK_DIR}}/.openclaw"
+      ],
+      "dockerfile": "FROM node:22-bookworm-slim\n\nRUN apt-get update && apt-get install -y --no-install-recommends \\\n    ca-certificates curl git gosu \\\n    && rm -rf /var/lib/apt/lists/*\n\nRUN npm install -g openclaw@latest\n\nENV NODE_ENV=production\nWORKDIR /home/node\n\nRUN chown -R node:node /home/node\n\nRUN printf '#!/bin/sh\\nset -e\\nmkdir -p /home/node/.openclaw\\nchown -R node:node /home/node/.openclaw\\nexec gosu node \"$@\"\\n' > /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh\n\nENTRYPOINT [\"entrypoint.sh\"]\nEXPOSE 18789\nCMD [\"openclaw\", \"gateway\", \"--allow-unconfigured\", \"--bind\", \"lan\", \"--port\", \"18789\"]\n",
+      "envHints": [
+        {
+          "key": "GATEWAY_TOKEN",
+          "description": "Authentication token for the Gateway Control UI",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Gateway host port",
+          "default": "18789"
+        },
+        {
+          "name": "BRIDGE_PORT",
+          "description": "Bridge host port",
+          "default": "18790"
+        },
+        {
+          "name": "GATEWAY_TOKEN",
+          "description": "Gateway authentication token",
+          "default": ""
+        }
+      ],
+      "documentation": "## OpenClaw Deployment\n\nOpenClaw is your personal AI assistant gateway with sandboxed tool execution.\n\nInstalls the latest stable release from npm — no build step needed, deploys in under a minute.\n\nData is stored in `.openclaw/` within the app directory on your server.\n\nThe gateway binds to localhost only (127.0.0.1) for security. Use the SSH tunnel feature in ServerCompass to access the dashboard.\n\nSee https://docs.openclaw.ai/install/docker for full documentation.",
+      "externalAccessInstructions": "Gateway binds to localhost only. Use the SSH tunnel feature in ServerCompass to access the UI at http://localhost:{{PORT}}",
+      "securityNotes": "- Keep GATEWAY_TOKEN secret — it grants full access to the gateway\n- Gateway binds to 127.0.0.1 (not publicly accessible)\n- Access via SSH tunnel (built into ServerCompass) — no HTTPS needed\n- Runs as non-root node user (uid 1000) for security",
+      "postDeploymentSteps": "1. Open an SSH tunnel via ServerCompass to access the Gateway UI\n2. Authenticate with your GATEWAY_TOKEN\n3. Configure Claude API keys in the Control UI"
+    },
+    {
+      "id": "builtin-keycloak",
+      "name": "Keycloak",
+      "description": "Open-source identity and access management with SSO",
+      "parentCategory": "development",
+      "subCategory": "iam",
+      "icon": "🔑",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8080,
+      "compose": "services:\n  keycloak:\n    image: quay.io/keycloak/keycloak:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - KC_BOOTSTRAP_ADMIN_USERNAME={{ADMIN_USER}}\n      - KC_BOOTSTRAP_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - KC_DB=postgres\n      - KC_DB_URL=jdbc:postgresql://db:5432/keycloak\n      - KC_DB_USERNAME=keycloak\n      - KC_DB_PASSWORD={{DB_PASSWORD}}\n    command: start-dev\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=keycloak\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=keycloak\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U keycloak\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ADMIN_USER",
+          "description": "Admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string",
+          "installTimeOnly": true
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8080"
+        },
+        {
+          "name": "ADMIN_USER",
+          "description": "Admin user",
+          "default": "admin"
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Use production mode (start instead of start-dev) and HTTPS for production",
+      "postDeploymentSteps": "1. Log in to admin console\n2. Create realms and clients",
+      "category": "development"
+    },
+    {
+      "id": "builtin-authentik",
+      "name": "Authentik",
+      "description": "Flexible identity provider with SSO, MFA, and user management",
+      "parentCategory": "development",
+      "subCategory": "iam",
+      "icon": "🛡️",
+      "minMemoryMB": 2048,
+      "recommendedPort": 9000,
+      "compose": "services:\n  authentik:\n    image: ghcr.io/goauthentik/server:latest\n    ports:\n      - \"{{PORT}}:9000\"\n      - \"{{HTTPS_PORT}}:9443\"\n    environment:\n      - AUTHENTIK_SECRET_KEY={{SECRET_KEY}}\n      - AUTHENTIK_REDIS__HOST=redis\n      - AUTHENTIK_POSTGRESQL__HOST=db\n      - AUTHENTIK_POSTGRESQL__USER=authentik\n      - AUTHENTIK_POSTGRESQL__NAME=authentik\n      - AUTHENTIK_POSTGRESQL__PASSWORD={{DB_PASSWORD}}\n    command: server\n    volumes:\n      - authentik_media:/media\n      - authentik_templates:/templates\n    restart: unless-stopped\n    depends_on:\n      - db\n      - redis\n\n  worker:\n    image: ghcr.io/goauthentik/server:latest\n    command: worker\n    environment:\n      - AUTHENTIK_SECRET_KEY={{SECRET_KEY}}\n      - AUTHENTIK_REDIS__HOST=redis\n      - AUTHENTIK_POSTGRESQL__HOST=db\n      - AUTHENTIK_POSTGRESQL__USER=authentik\n      - AUTHENTIK_POSTGRESQL__NAME=authentik\n      - AUTHENTIK_POSTGRESQL__PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - authentik_media:/media\n      - authentik_templates:/templates\n    restart: unless-stopped\n    depends_on:\n      - db\n      - redis\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=authentik\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=authentik\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\n  redis:\n    image: redis:7-alpine\n    restart: unless-stopped\n\nvolumes:\n  authentik_media:\n  authentik_templates:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SECRET_KEY",
+          "description": "Secret key (50+ chars)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP port",
+          "default": "9000"
+        },
+        {
+          "name": "HTTPS_PORT",
+          "description": "HTTPS port",
+          "default": "9443"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Secret key",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}/if/flow/initial-setup/",
+      "securityNotes": "Complete initial setup immediately. Use HTTPS in production.",
+      "postDeploymentSteps": "1. Complete initial setup wizard\n2. Create applications and providers",
+      "category": "development"
+    },
+    {
+      "id": "builtin-authelia",
+      "name": "Authelia",
+      "description": "Single sign-on and 2FA portal for web applications",
+      "parentCategory": "development",
+      "subCategory": "iam",
+      "icon": "🔐",
+      "minMemoryMB": 256,
+      "recommendedPort": 9091,
+      "compose": "services:\n  authelia:\n    image: authelia/authelia:latest\n    ports:\n      - \"{{PORT}}:9091\"\n    environment:\n      - AUTHELIA_JWT_SECRET={{JWT_SECRET}}\n      - AUTHELIA_SESSION_SECRET={{SESSION_SECRET}}\n      - AUTHELIA_STORAGE_ENCRYPTION_KEY={{ENCRYPTION_KEY}}\n    volumes:\n      - authelia_config:/config\n    restart: unless-stopped\n    depends_on:\n      - redis\n\n  redis:\n    image: redis:7-alpine\n    restart: unless-stopped\n\nvolumes:\n  authelia_config:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "JWT_SECRET",
+          "description": "JWT secret (64+ chars)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "SESSION_SECRET",
+          "description": "Session secret (64+ chars)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "ENCRYPTION_KEY",
+          "description": "Storage encryption key (64+ chars)",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "9091"
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "JWT secret",
+          "default": ""
+        },
+        {
+          "name": "SESSION_SECRET",
+          "description": "Session secret",
+          "default": ""
+        },
+        {
+          "name": "ENCRYPTION_KEY",
+          "description": "Encryption key",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Requires configuration.yml in /config volume. All secrets must be 64+ chars.",
+      "postDeploymentSteps": "1. Create configuration.yml\n2. Configure with your reverse proxy",
+      "category": "development"
+    },
+    {
+      "id": "builtin-gitea",
+      "name": "Gitea",
+      "description": "Lightweight Git service with issue tracking and wiki",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🍵",
+      "minMemoryMB": 256,
+      "recommendedPort": 3000,
+      "compose": "services:\n  gitea:\n    image: gitea/gitea:latest\n    ports:\n      - \"{{PORT}}:3000\"\n      - \"{{SSH_PORT}}:22\"\n    environment:\n      - USER_UID=1000\n      - USER_GID=1000\n      - GITEA__database__DB_TYPE=postgres\n      - GITEA__database__HOST=db:5432\n      - GITEA__database__NAME=gitea\n      - GITEA__database__USER=gitea\n      - GITEA__database__PASSWD={{DB_PASSWORD}}\n    volumes:\n      - gitea_data:/data\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=gitea\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=gitea\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U gitea\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  gitea_data:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Web port",
+          "default": "3000"
+        },
+        {
+          "name": "SSH_PORT",
+          "description": "SSH port",
+          "default": "2222"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Complete installation wizard on first access",
+      "postDeploymentSteps": "1. Complete installation wizard\n2. Create admin account\n3. Configure SSH key",
+      "category": "development"
+    },
+    {
+      "id": "builtin-jenkins",
+      "name": "Jenkins",
+      "description": "Automation server for CI/CD pipelines",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🤖",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8080,
+      "compose": "services:\n  jenkins:\n    image: jenkins/jenkins:lts\n    ports:\n      - \"{{PORT}}:8080\"\n      - \"{{AGENT_PORT}}:50000\"\n    environment:\n      - JAVA_OPTS=-Djenkins.install.runSetupWizard=true\n    volumes:\n      - jenkins_home:/var/jenkins_home\n    restart: unless-stopped\n\nvolumes:\n  jenkins_home:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Web port",
+          "default": "8080"
+        },
+        {
+          "name": "AGENT_PORT",
+          "description": "Agent port",
+          "default": "50000"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}\nGet initial password: docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword",
+      "securityNotes": "Change admin password after setup. Use HTTPS in production.",
+      "postDeploymentSteps": "1. Get initial password from logs\n2. Complete setup wizard\n3. Install recommended plugins",
+      "category": "development"
+    },
+    {
+      "id": "builtin-gitlab",
+      "name": "GitLab",
+      "description": "Complete DevOps platform with Git, CI/CD, and container registry",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🦊",
+      "minMemoryMB": 8192,
+      "recommendedPort": 80,
+      "compose": "services:\n  gitlab:\n    image: gitlab/gitlab-ce:latest\n    ports:\n      - \"{{PORT}}:80\"\n      - \"{{HTTPS_PORT}}:443\"\n      - \"{{SSH_PORT}}:22\"\n    environment:\n      GITLAB_OMNIBUS_CONFIG: |\n        external_url 'http://{{EXTERNAL_URL}}'\n        gitlab_rails['gitlab_shell_ssh_port'] = {{SSH_PORT}}\n    volumes:\n      - gitlab_config:/etc/gitlab\n      - gitlab_logs:/var/log/gitlab\n      - gitlab_data:/var/opt/gitlab\n    shm_size: '256m'\n    restart: unless-stopped\n\nvolumes:\n  gitlab_config:\n  gitlab_logs:\n  gitlab_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "EXTERNAL_URL",
+          "description": "External URL (hostname:port)",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP port",
+          "default": "80"
+        },
+        {
+          "name": "HTTPS_PORT",
+          "description": "HTTPS port",
+          "default": "443"
+        },
+        {
+          "name": "SSH_PORT",
+          "description": "SSH port",
+          "default": "2222"
+        },
+        {
+          "name": "EXTERNAL_URL",
+          "description": "External URL",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}\nDefault root password: docker exec gitlab grep 'Password:' /etc/gitlab/initial_root_password",
+      "securityNotes": "Requires 8GB+ RAM. First startup takes 5-10 minutes.",
+      "postDeploymentSteps": "1. Wait for GitLab to start (5-10 min)\n2. Get root password from logs\n3. Log in and change password",
+      "category": "development"
+    },
+    {
+      "id": "builtin-portainer",
+      "name": "Portainer",
+      "description": "Docker management UI for containers and stacks",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🐳",
+      "minMemoryMB": 256,
+      "recommendedPort": 9000,
+      "compose": "services:\n  portainer:\n    image: portainer/portainer-ce:latest\n    ports:\n      - \"{{PORT}}:9000\"\n      - \"{{HTTPS_PORT}}:9443\"\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n      - portainer_data:/data\n    restart: unless-stopped\n\nvolumes:\n  portainer_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP port",
+          "default": "9000"
+        },
+        {
+          "name": "HTTPS_PORT",
+          "description": "HTTPS port",
+          "default": "9443"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create admin password on first access. Docker socket access grants root.",
+      "postDeploymentSteps": "1. Create admin account\n2. Add Docker environment",
+      "category": "development"
+    },
+    {
+      "id": "builtin-docker-registry",
+      "name": "Docker Registry",
+      "description": "Private Docker image registry",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "📦",
+      "minMemoryMB": 256,
+      "recommendedPort": 5000,
+      "compose": "services:\n  registry:\n    image: registry:2\n    ports:\n      - \"{{PORT}}:5000\"\n    environment:\n      - REGISTRY_STORAGE_DELETE_ENABLED=true\n    volumes:\n      - registry_data:/var/lib/registry\n    restart: unless-stopped\n\nvolumes:\n  registry_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "5000"
+        }
+      ],
+      "externalAccessInstructions": "Push: docker push YOUR_SERVER_IP:{{PORT}}/image:tag",
+      "securityNotes": "No authentication by default. Use HTTPS and basic auth in production.",
+      "postDeploymentSteps": "1. Configure Docker daemon to allow insecure registry\n2. Push/pull images",
+      "category": "development"
+    },
+    {
+      "id": "builtin-sonarqube",
+      "name": "SonarQube",
+      "description": "Code quality and security analysis platform",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🔍",
+      "minMemoryMB": 4096,
+      "recommendedPort": 9000,
+      "compose": "services:\n  sonarqube:\n    image: sonarqube:community\n    ports:\n      - \"{{PORT}}:9000\"\n    environment:\n      - SONAR_JDBC_URL=jdbc:postgresql://db:5432/sonarqube\n      - SONAR_JDBC_USERNAME=sonarqube\n      - SONAR_JDBC_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - sonarqube_data:/opt/sonarqube/data\n      - sonarqube_logs:/opt/sonarqube/logs\n      - sonarqube_extensions:/opt/sonarqube/extensions\n    restart: unless-stopped\n    depends_on:\n      - db\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=sonarqube\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=sonarqube\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\nvolumes:\n  sonarqube_data:\n  sonarqube_logs:\n  sonarqube_extensions:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "9000"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}\nDefault: admin / admin",
+      "securityNotes": "Requires: sysctl -w vm.max_map_count=524288. Change admin password.",
+      "postDeploymentSteps": "1. Set vm.max_map_count on host\n2. Log in (admin/admin)\n3. Change password\n4. Create projects",
+      "category": "development"
+    },
+    {
+      "id": "builtin-healthchecks",
+      "name": "Healthchecks",
+      "description": "Cron job monitoring service",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "💓",
+      "minMemoryMB": 256,
+      "recommendedPort": 8000,
+      "compose": "services:\n  healthchecks:\n    image: healthchecks/healthchecks:latest\n    ports:\n      - \"{{PORT}}:8000\"\n    environment:\n      - DB=postgres\n      - DB_HOST=db\n      - DB_PORT=5432\n      - DB_NAME=healthchecks\n      - DB_USER=healthchecks\n      - DB_PASSWORD={{DB_PASSWORD}}\n      - SECRET_KEY={{SECRET_KEY}}\n      - SITE_ROOT={{SITE_ROOT}}\n      - ALLOWED_HOSTS=*\n    restart: unless-stopped\n    depends_on:\n      - db\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=healthchecks\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=healthchecks\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SITE_ROOT",
+          "description": "Public URL",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Django secret key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8000"
+        },
+        {
+          "name": "SITE_ROOT",
+          "description": "Site URL",
+          "default": ""
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Secret key",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create superuser: docker exec healthchecks ./manage.py createsuperuser",
+      "postDeploymentSteps": "1. Create superuser\n2. Create checks for your cron jobs",
+      "category": "development"
+    },
+    {
+      "id": "builtin-gotify",
+      "name": "Gotify",
+      "description": "Self-hosted push notification server",
+      "parentCategory": "development",
+      "subCategory": "network",
+      "icon": "🔔",
+      "minMemoryMB": 64,
+      "recommendedPort": 8080,
+      "compose": "services:\n  gotify:\n    image: gotify/server:latest\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - GOTIFY_DEFAULTUSER_NAME={{ADMIN_USER}}\n      - GOTIFY_DEFAULTUSER_PASS={{ADMIN_PASSWORD}}\n    volumes:\n      - gotify_data:/app/data\n    restart: unless-stopped\n\nvolumes:\n  gotify_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ADMIN_USER",
+          "description": "Admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8080"
+        },
+        {
+          "name": "ADMIN_USER",
+          "description": "Admin user",
+          "default": "admin"
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Use HTTPS for production",
+      "postDeploymentSteps": "1. Log in with admin credentials\n2. Create applications and clients",
+      "category": "development"
+    },
+    {
+      "id": "builtin-rustdesk",
+      "name": "RustDesk Server",
+      "description": "Self-hosted remote desktop server",
+      "parentCategory": "development",
+      "subCategory": "network",
+      "icon": "🖥️",
+      "minMemoryMB": 128,
+      "recommendedPort": 21115,
+      "compose": "services:\n  hbbs:\n    image: rustdesk/rustdesk-server:latest\n    command: hbbs\n    ports:\n      - \"{{PORT}}:21115\"\n      - \"21116:21116\"\n      - \"21116:21116/udp\"\n      - \"21118:21118\"\n    volumes:\n      - rustdesk_data:/root\n    restart: unless-stopped\n\n  hbbr:\n    image: rustdesk/rustdesk-server:latest\n    command: hbbr\n    ports:\n      - \"21117:21117\"\n      - \"21119:21119\"\n    volumes:\n      - rustdesk_data:/root\n    restart: unless-stopped\n\nvolumes:\n  rustdesk_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "ID server port",
+          "default": "21115"
+        }
+      ],
+      "externalAccessInstructions": "Configure RustDesk client with:\nID Server: YOUR_SERVER_IP\nRelay Server: YOUR_SERVER_IP",
+      "securityNotes": "Key is auto-generated in /root folder. Share only with trusted users.",
+      "postDeploymentSteps": "1. Get public key from logs\n2. Configure RustDesk clients",
+      "category": "development"
+    },
+    {
+      "id": "builtin-appsmith",
+      "name": "Appsmith",
+      "description": "Low-code platform for building internal tools",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "icon": "🔧",
+      "minMemoryMB": 2048,
+      "recommendedPort": 8080,
+      "compose": "services:\n  appsmith:\n    image: appsmith/appsmith-ce:latest\n    ports:\n      - \"{{PORT}}:80\"\n    volumes:\n      - appsmith_data:/appsmith-stacks\n    restart: unless-stopped\n\nvolumes:\n  appsmith_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8080"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create admin account on first access",
+      "postDeploymentSteps": "1. Create admin account\n2. Connect data sources\n3. Build applications",
+      "category": "development"
+    },
+    {
+      "id": "builtin-windmill",
+      "name": "Windmill",
+      "description": "Open-source developer platform for scripts and workflows",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "icon": "🌀",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8000,
+      "compose": "services:\n  windmill:\n    image: ghcr.io/windmill-labs/windmill:main\n    ports:\n      - \"{{PORT}}:8000\"\n    environment:\n      - DATABASE_URL=postgres://windmill:{{DB_PASSWORD}}@db:5432/windmill\n      - BASE_URL={{BASE_URL}}\n    restart: unless-stopped\n    depends_on:\n      - db\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=windmill\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=windmill\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "BASE_URL",
+          "description": "Public URL",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8000"
+        },
+        {
+          "name": "BASE_URL",
+          "description": "Base URL",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}\nDefault: admin@windmill.dev / changeme",
+      "securityNotes": "Change default admin password immediately",
+      "postDeploymentSteps": "1. Log in with default credentials\n2. Change password\n3. Create scripts and flows",
+      "category": "development"
+    },
+    {
+      "id": "builtin-hoppscotch",
+      "name": "Hoppscotch",
+      "description": "Open-source API development ecosystem (Postman alternative)",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "icon": "🦅",
+      "minMemoryMB": 512,
+      "recommendedPort": 3000,
+      "compose": "services:\n  hoppscotch:\n    image: hoppscotch/hoppscotch:latest\n    ports:\n      - \"{{PORT}}:3000\"\n    environment:\n      - DATABASE_URL=postgresql://hoppscotch:{{DB_PASSWORD}}@db:5432/hoppscotch\n      - JWT_SECRET={{JWT_SECRET}}\n      - SESSION_SECRET={{SESSION_SECRET}}\n    restart: unless-stopped\n    depends_on:\n      - db\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=hoppscotch\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=hoppscotch\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "JWT_SECRET",
+          "description": "JWT secret",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "SESSION_SECRET",
+          "description": "Session secret",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3000"
+        },
+        {
+          "name": "JWT_SECRET",
+          "description": "JWT secret",
+          "default": ""
+        },
+        {
+          "name": "SESSION_SECRET",
+          "description": "Session secret",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Use strong secrets",
+      "postDeploymentSteps": "1. Create account\n2. Start testing APIs",
+      "category": "development"
+    },
+    {
+      "id": "builtin-zitadel",
+      "name": "Zitadel",
+      "description": "Cloud-native identity management platform",
+      "parentCategory": "development",
+      "subCategory": "iam",
+      "icon": "🔐",
+      "minMemoryMB": 512,
+      "recommendedPort": 8080,
+      "compose": "services:\n  zitadel:\n    image: ghcr.io/zitadel/zitadel:latest\n    command: start-from-init --masterkeyFromEnv --tlsMode disabled\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - ZITADEL_MASTERKEY={{MASTER_KEY}}\n      - ZITADEL_DATABASE_POSTGRES_HOST=db\n      - ZITADEL_DATABASE_POSTGRES_PORT=5432\n      - ZITADEL_DATABASE_POSTGRES_DATABASE=postgres\n      - ZITADEL_DATABASE_POSTGRES_USER_USERNAME=postgres\n      - ZITADEL_DATABASE_POSTGRES_USER_PASSWORD={{DB_PASSWORD}}\n      - ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=postgres\n      - ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD={{DB_PASSWORD}}\n      - ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable\n      - ZITADEL_EXTERNALSECURE=false\n      - ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME=admin\n      - ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD={{ADMIN_PASSWORD}}\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=postgres\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=postgres\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "MASTER_KEY",
+          "description": "Master encryption key (32 chars)",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Initial admin password (must include a symbol)",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8080"
+        },
+        {
+          "name": "MASTER_KEY",
+          "description": "Master key",
+          "default": ""
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Enable TLS in production. Master key must be exactly 32 characters.",
+      "postDeploymentSteps": "1. Login with admin credentials\n2. Create organization\n3. Configure identity providers",
+      "category": "development"
+    },
+    {
+      "id": "builtin-logto",
+      "name": "Logto",
+      "description": "Open-source Auth0 alternative for modern applications",
+      "parentCategory": "development",
+      "subCategory": "iam",
+      "icon": "🔑",
+      "minMemoryMB": 512,
+      "recommendedPort": 3001,
+      "compose": "services:\n  logto:\n    image: svhd/logto:latest\n    entrypoint: /bin/sh\n    command:\n      - -c\n      - npm run cli db seed -- --swe && npm start\n    ports:\n      - \"{{PORT}}:3001\"\n      - \"{{ADMIN_PORT}}:3002\"\n    environment:\n      - DB_URL=postgres://logto:{{DB_PASSWORD}}@db:5432/logto\n      - ENDPOINT={{ENDPOINT}}\n      - ADMIN_ENDPOINT={{ADMIN_ENDPOINT}}\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=logto\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=logto\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U logto\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ENDPOINT",
+          "description": "Public endpoint URL",
+          "required": true,
+          "default": "http://localhost:3001",
+          "type": "string"
+        },
+        {
+          "key": "ADMIN_ENDPOINT",
+          "description": "Admin console URL",
+          "required": true,
+          "default": "http://localhost:3002",
+          "type": "string"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Main port",
+          "default": "3001"
+        },
+        {
+          "name": "ADMIN_PORT",
+          "description": "Admin port",
+          "default": "3002"
+        },
+        {
+          "name": "ENDPOINT",
+          "description": "Endpoint",
+          "default": ""
+        },
+        {
+          "name": "ADMIN_ENDPOINT",
+          "description": "Admin endpoint",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "App: http://YOUR_SERVER_IP:{{PORT}}\nAdmin: http://YOUR_SERVER_IP:{{ADMIN_PORT}}",
+      "securityNotes": "Use HTTPS in production",
+      "postDeploymentSteps": "1. Access admin console\n2. Create admin account\n3. Configure applications",
+      "category": "development"
+    },
+    {
+      "id": "builtin-supertokens",
+      "name": "SuperTokens",
+      "description": "Open-source authentication and session management",
+      "parentCategory": "development",
+      "subCategory": "iam",
+      "icon": "🛡️",
+      "minMemoryMB": 256,
+      "recommendedPort": 3567,
+      "compose": "services:\n  supertokens:\n    image: supertokens/supertokens-postgresql:latest\n    ports:\n      - \"{{PORT}}:3567\"\n    environment:\n      - POSTGRESQL_CONNECTION_URI=postgresql://supertokens:{{DB_PASSWORD}}@db:5432/supertokens\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=supertokens\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=supertokens\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U supertokens\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3567"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Core API: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Configure API keys before production use",
+      "postDeploymentSteps": "1. Test core API\n2. Set up frontend SDK\n3. Configure recipes",
+      "category": "development"
+    },
+    {
+      "id": "builtin-parse",
+      "name": "Parse Server",
+      "description": "Open-source backend-as-a-service platform",
+      "parentCategory": "development",
+      "subCategory": "baas",
+      "icon": "📱",
+      "minMemoryMB": 512,
+      "recommendedPort": 1337,
+      "compose": "services:\n  parse:\n    image: parseplatform/parse-server:latest\n    ports:\n      - \"{{PORT}}:1337\"\n    environment:\n      - PARSE_SERVER_APPLICATION_ID={{APP_ID}}\n      - PARSE_SERVER_MASTER_KEY={{MASTER_KEY}}\n      - PARSE_SERVER_DATABASE_URI=mongodb://mongo:27017/parse\n      - PARSE_SERVER_URL=http://localhost:{{PORT}}/parse\n    restart: unless-stopped\n    depends_on:\n      - mongo\n\n  parse-dashboard:\n    image: parseplatform/parse-dashboard:latest\n    ports:\n      - \"{{DASHBOARD_PORT}}:4040\"\n    environment:\n      - PARSE_DASHBOARD_SERVER_URL=http://parse:1337/parse\n      - PARSE_DASHBOARD_APP_ID={{APP_ID}}\n      - PARSE_DASHBOARD_MASTER_KEY={{MASTER_KEY}}\n      - PARSE_DASHBOARD_APP_NAME=Parse\n      - PARSE_DASHBOARD_USER_ID={{DASHBOARD_USER}}\n      - PARSE_DASHBOARD_USER_PASSWORD={{DASHBOARD_PASSWORD}}\n    restart: unless-stopped\n    depends_on:\n      - parse\n\n  mongo:\n    image: mongo:6\n    volumes:\n      - mongo_data:/data/db\n    restart: unless-stopped\n\nvolumes:\n  mongo_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "APP_ID",
+          "description": "Parse application ID",
+          "required": true,
+          "default": "parse-app",
+          "type": "string"
+        },
+        {
+          "key": "MASTER_KEY",
+          "description": "Parse master key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DASHBOARD_USER",
+          "description": "Dashboard username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "DASHBOARD_PASSWORD",
+          "description": "Dashboard password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Parse Server port",
+          "default": "1337"
+        },
+        {
+          "name": "DASHBOARD_PORT",
+          "description": "Dashboard port",
+          "default": "4040"
+        },
+        {
+          "name": "APP_ID",
+          "description": "App ID",
+          "default": ""
+        },
+        {
+          "name": "MASTER_KEY",
+          "description": "Master key",
+          "default": ""
+        },
+        {
+          "name": "DASHBOARD_USER",
+          "description": "Dashboard user",
+          "default": "admin"
+        },
+        {
+          "name": "DASHBOARD_PASSWORD",
+          "description": "Dashboard password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "API: http://YOUR_SERVER_IP:{{PORT}}/parse\nDashboard: http://YOUR_SERVER_IP:{{DASHBOARD_PORT}}",
+      "securityNotes": "Keep master key secret. Use client keys for apps.",
+      "postDeploymentSteps": "1. Access Parse Dashboard\n2. Create classes and schemas\n3. Configure cloud functions",
+      "category": "development"
+    },
+    {
+      "id": "builtin-emqx",
+      "name": "EMQX",
+      "description": "Scalable MQTT broker for IoT applications",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "icon": "📡",
+      "minMemoryMB": 512,
+      "recommendedPort": 1883,
+      "compose": "services:\n  emqx:\n    image: emqx/emqx:latest\n    ports:\n      - \"{{PORT}}:1883\"\n      - \"{{WS_PORT}}:8083\"\n      - \"{{DASHBOARD_PORT}}:18083\"\n    volumes:\n      - emqx_data:/opt/emqx/data\n      - emqx_log:/opt/emqx/log\n    restart: unless-stopped\n\nvolumes:\n  emqx_data:\n  emqx_log:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "MQTT port",
+          "default": "1883"
+        },
+        {
+          "name": "WS_PORT",
+          "description": "WebSocket port",
+          "default": "8083"
+        },
+        {
+          "name": "DASHBOARD_PORT",
+          "description": "Dashboard port",
+          "default": "18083"
+        }
+      ],
+      "externalAccessInstructions": "MQTT: mqtt://YOUR_SERVER_IP:{{PORT}}\nDashboard: http://YOUR_SERVER_IP:{{DASHBOARD_PORT}} (admin/public)",
+      "securityNotes": "Default: admin/public - change immediately",
+      "postDeploymentSteps": "1. Access dashboard\n2. Change admin password\n3. Configure authentication",
+      "category": "development"
+    },
+    {
+      "id": "builtin-browserless",
+      "name": "Browserless",
+      "description": "Headless Chrome automation service",
+      "parentCategory": "development",
+      "subCategory": "network",
+      "icon": "🌐",
+      "minMemoryMB": 1024,
+      "recommendedPort": 3000,
+      "compose": "services:\n  browserless:\n    image: browserless/chrome:latest\n    ports:\n      - \"{{PORT}}:3000\"\n    environment:\n      - TOKEN={{TOKEN}}\n      - MAX_CONCURRENT_SESSIONS=10\n    restart: unless-stopped\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "TOKEN",
+          "description": "API token for authentication",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3000"
+        },
+        {
+          "name": "TOKEN",
+          "description": "API token",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "API: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Always use token authentication",
+      "postDeploymentSteps": "1. Test with Puppeteer or Playwright\n2. Configure concurrency limits",
+      "category": "development"
+    },
+    {
+      "id": "builtin-centrifugo",
+      "name": "Centrifugo",
+      "description": "Scalable real-time messaging server",
+      "parentCategory": "development",
+      "subCategory": "network",
+      "icon": "📨",
+      "minMemoryMB": 256,
+      "recommendedPort": 8000,
+      "compose": "services:\n  centrifugo:\n    image: centrifugo/centrifugo:latest\n    ports:\n      - \"{{PORT}}:8000\"\n    command: centrifugo -c config.json\n    environment:\n      - CENTRIFUGO_TOKEN_HMAC_SECRET_KEY={{TOKEN_SECRET}}\n      - CENTRIFUGO_API_KEY={{API_KEY}}\n      - CENTRIFUGO_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - CENTRIFUGO_ADMIN=true\n    volumes:\n      - centrifugo_data:/centrifugo\n    restart: unless-stopped\n\nvolumes:\n  centrifugo_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "TOKEN_SECRET",
+          "description": "JWT token secret",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "API_KEY",
+          "description": "Server API key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin UI password",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8000"
+        },
+        {
+          "name": "TOKEN_SECRET",
+          "description": "Token secret",
+          "default": ""
+        },
+        {
+          "name": "API_KEY",
+          "description": "API key",
+          "default": ""
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "WebSocket: ws://YOUR_SERVER_IP:{{PORT}}/connection/websocket",
+      "securityNotes": "Use strong secrets",
+      "postDeploymentSteps": "1. Test WebSocket connection\n2. Configure channels\n3. Integrate with backend",
+      "category": "development"
+    },
+    {
+      "id": "builtin-wireguard",
+      "name": "WireGuard",
+      "description": "Fast and modern VPN tunnel",
+      "parentCategory": "development",
+      "subCategory": "network",
+      "icon": "🔒",
+      "minMemoryMB": 128,
+      "recommendedPort": 51820,
+      "compose": "services:\n  wireguard:\n    image: linuxserver/wireguard:latest\n    cap_add:\n      - NET_ADMIN\n      - SYS_MODULE\n    ports:\n      - \"{{PORT}}:51820/udp\"\n    environment:\n      - PUID=1000\n      - PGID=1000\n      - TZ=UTC\n      - SERVERURL={{SERVER_URL}}\n      - SERVERPORT={{PORT}}\n      - PEERS={{PEERS}}\n      - PEERDNS=auto\n    volumes:\n      - wireguard_config:/config\n      - /lib/modules:/lib/modules:ro\n    sysctls:\n      - net.ipv4.conf.all.src_valid_mark=1\n    restart: unless-stopped\n\nvolumes:\n  wireguard_config:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SERVER_URL",
+          "description": "Server public IP or domain",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "PEERS",
+          "description": "Number of peer configs",
+          "required": true,
+          "default": "3",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "UDP port",
+          "default": "51820"
+        },
+        {
+          "name": "SERVER_URL",
+          "description": "Server URL",
+          "default": ""
+        },
+        {
+          "name": "PEERS",
+          "description": "Number of peers",
+          "default": "3"
+        }
+      ],
+      "externalAccessInstructions": "UDP: YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Keep private keys secure",
+      "postDeploymentSteps": "1. Get peer configs from container\n2. Distribute to clients\n3. Test VPN connection",
+      "category": "development"
+    },
+    {
+      "id": "builtin-gitlab-runner",
+      "name": "GitLab Runner",
+      "description": "GitLab CI/CD runner for executing jobs",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🏃",
+      "minMemoryMB": 512,
+      "recommendedPort": 8093,
+      "compose": "services:\n  gitlab-runner:\n    image: gitlab/gitlab-runner:latest\n    volumes:\n      - runner_config:/etc/gitlab-runner\n      - /var/run/docker.sock:/var/run/docker.sock\n    restart: unless-stopped\n\nvolumes:\n  runner_config:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [],
+      "externalAccessInstructions": "Register with: docker exec -it CONTAINER gitlab-runner register",
+      "securityNotes": "Docker socket access gives runner root privileges on host",
+      "postDeploymentSteps": "1. Register runner with GitLab\n2. Configure executor\n3. Add runner tags",
+      "category": "development"
+    },
+    {
+      "id": "builtin-cronicle",
+      "name": "Cronicle",
+      "description": "Multi-server task scheduler and job runner",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "⏰",
+      "minMemoryMB": 256,
+      "recommendedPort": 3012,
+      "compose": "services:\n  cronicle:\n    image: bluet/cronicle-docker:latest\n    ports:\n      - \"{{PORT}}:3012\"\n    environment:\n      - CRONICLE_base_app_url={{BASE_URL}}\n    volumes:\n      - cronicle_data:/opt/cronicle/data\n      - cronicle_logs:/opt/cronicle/logs\n    restart: unless-stopped\n\nvolumes:\n  cronicle_data:\n  cronicle_logs:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "BASE_URL",
+          "description": "Public URL",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3012"
+        },
+        {
+          "name": "BASE_URL",
+          "description": "Base URL",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}} (admin/admin)",
+      "securityNotes": "Default: admin/admin - change immediately",
+      "postDeploymentSteps": "1. Login and change password\n2. Create job categories\n3. Schedule jobs",
+      "category": "development"
+    },
+    {
+      "id": "builtin-guacamole",
+      "name": "Apache Guacamole",
+      "description": "Clientless remote desktop gateway",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🖥️",
+      "minMemoryMB": 512,
+      "recommendedPort": 8080,
+      "compose": "services:\n  guacamole:\n    image: guacamole/guacamole:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - GUACD_HOSTNAME=guacd\n      - MYSQL_HOSTNAME=db\n      - MYSQL_DATABASE=guacamole\n      - MYSQL_USER=guacamole\n      - MYSQL_PASSWORD={{DB_PASSWORD}}\n    restart: unless-stopped\n    depends_on:\n      - guacd\n      - db\n\n  guacd:\n    image: guacamole/guacd:latest\n    restart: unless-stopped\n\n  db:\n    image: mysql:8.0\n    environment:\n      - MYSQL_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MYSQL_DATABASE=guacamole\n      - MYSQL_USER=guacamole\n      - MYSQL_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: unless-stopped\n\nvolumes:\n  mysql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8080"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}/guacamole",
+      "securityNotes": "Initialize DB schema first",
+      "postDeploymentSteps": "1. Initialize database schema\n2. Login and change password\n3. Configure connections",
+      "category": "development"
+    },
+    {
+      "id": "builtin-nexus",
+      "name": "Nexus Repository",
+      "description": "Universal artifact repository manager",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "📦",
+      "minMemoryMB": 2048,
+      "recommendedPort": 8081,
+      "compose": "services:\n  nexus:\n    image: sonatype/nexus3:latest\n    ports:\n      - \"{{PORT}}:8081\"\n    volumes:\n      - nexus_data:/nexus-data\n    restart: unless-stopped\n\nvolumes:\n  nexus_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8081"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Get initial admin password from container",
+      "postDeploymentSteps": "1. Get initial admin password\n2. Complete setup wizard\n3. Create repositories",
+      "category": "development"
+    },
+    {
+      "id": "builtin-localstack",
+      "name": "LocalStack",
+      "description": "Local AWS cloud stack for development",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "☁️",
+      "minMemoryMB": 2048,
+      "recommendedPort": 4566,
+      "compose": "services:\n  localstack:\n    image: localstack/localstack:latest\n    ports:\n      - \"{{PORT}}:4566\"\n    environment:\n      - SERVICES={{SERVICES}}\n      - DEBUG=1\n      - PERSISTENCE=1\n    volumes:\n      - localstack_data:/var/lib/localstack\n      - /var/run/docker.sock:/var/run/docker.sock\n    restart: unless-stopped\n\nvolumes:\n  localstack_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SERVICES",
+          "description": "AWS services to enable",
+          "required": false,
+          "default": "s3,sqs,dynamodb,lambda",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Gateway port",
+          "default": "4566"
+        },
+        {
+          "name": "SERVICES",
+          "description": "Services",
+          "default": "s3,sqs,dynamodb,lambda"
+        }
+      ],
+      "externalAccessInstructions": "Endpoint: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "For development only",
+      "postDeploymentSteps": "1. Configure AWS CLI\n2. Use --endpoint-url\n3. Test with AWS commands",
+      "category": "development"
+    },
+    {
+      "id": "builtin-onedev",
+      "name": "OneDev",
+      "description": "Self-hosted Git server with CI/CD and Kanban",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🔧",
+      "minMemoryMB": 1024,
+      "recommendedPort": 6610,
+      "compose": "services:\n  onedev:\n    image: 1dev/server:latest\n    ports:\n      - \"{{PORT}}:6610\"\n      - \"{{SSH_PORT}}:6611\"\n    volumes:\n      - onedev_data:/opt/onedev\n      - /var/run/docker.sock:/var/run/docker.sock\n    restart: unless-stopped\n\nvolumes:\n  onedev_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Web port",
+          "default": "6610"
+        },
+        {
+          "name": "SSH_PORT",
+          "description": "SSH port",
+          "default": "6611"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create admin on first access",
+      "postDeploymentSteps": "1. Create admin account\n2. Create projects\n3. Configure CI/CD",
+      "category": "development"
+    },
+    {
+      "id": "builtin-drone",
+      "name": "Drone CI",
+      "description": "Container-native CI/CD platform",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🚁",
+      "minMemoryMB": 512,
+      "recommendedPort": 80,
+      "compose": "services:\n  drone:\n    image: drone/drone:latest\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - DRONE_GITHUB_CLIENT_ID={{GITHUB_CLIENT_ID}}\n      - DRONE_GITHUB_CLIENT_SECRET={{GITHUB_CLIENT_SECRET}}\n      - DRONE_RPC_SECRET={{RPC_SECRET}}\n      - DRONE_SERVER_HOST={{SERVER_HOST}}\n      - DRONE_SERVER_PROTO=http\n    volumes:\n      - drone_data:/data\n    restart: unless-stopped\n\n  drone-runner:\n    image: drone/drone-runner-docker:latest\n    environment:\n      - DRONE_RPC_HOST=drone\n      - DRONE_RPC_SECRET={{RPC_SECRET}}\n      - DRONE_RUNNER_CAPACITY=2\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock\n    restart: unless-stopped\n    depends_on:\n      - drone\n\nvolumes:\n  drone_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "GITHUB_CLIENT_ID",
+          "description": "GitHub OAuth client ID",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "GITHUB_CLIENT_SECRET",
+          "description": "GitHub OAuth secret",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "RPC_SECRET",
+          "description": "Drone RPC secret",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "SERVER_HOST",
+          "description": "Server hostname",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "80"
+        },
+        {
+          "name": "GITHUB_CLIENT_ID",
+          "description": "GitHub ID",
+          "default": ""
+        },
+        {
+          "name": "GITHUB_CLIENT_SECRET",
+          "description": "GitHub secret",
+          "default": ""
+        },
+        {
+          "name": "RPC_SECRET",
+          "description": "RPC secret",
+          "default": ""
+        },
+        {
+          "name": "SERVER_HOST",
+          "description": "Server host",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Configure GitHub OAuth app first",
+      "postDeploymentSteps": "1. Create GitHub OAuth app\n2. Login via GitHub\n3. Activate repos",
+      "category": "development"
+    },
+    {
+      "id": "builtin-forgejo",
+      "name": "Forgejo",
+      "description": "Self-hosted Git forge (Gitea fork)",
+      "parentCategory": "development",
+      "subCategory": "devops",
+      "icon": "🦊",
+      "minMemoryMB": 512,
+      "recommendedPort": 3000,
+      "compose": "services:\n  forgejo:\n    image: codeberg.org/forgejo/forgejo:7\n    ports:\n      - \"{{PORT}}:3000\"\n      - \"{{SSH_PORT}}:22\"\n    environment:\n      - USER_UID=1000\n      - USER_GID=1000\n      - FORGEJO__database__DB_TYPE=postgres\n      - FORGEJO__database__HOST=db:5432\n      - FORGEJO__database__NAME=forgejo\n      - FORGEJO__database__USER=forgejo\n      - FORGEJO__database__PASSWD={{DB_PASSWORD}}\n    volumes:\n      - forgejo_data:/data\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=forgejo\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=forgejo\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U forgejo\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n\nvolumes:\n  forgejo_data:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Web port",
+          "default": "3000"
+        },
+        {
+          "name": "SSH_PORT",
+          "description": "SSH port",
+          "default": "2222"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Complete wizard on first access",
+      "postDeploymentSteps": "1. Complete installation wizard\n2. Create admin account\n3. Create repos",
+      "category": "development"
+    },
+    {
+      "id": "builtin-stirling-pdf",
+      "name": "Stirling PDF",
+      "description": "All-in-one PDF manipulation tool with merge, split, convert, OCR, and more",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "category": "development",
+      "icon": "📄",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8080,
+      "compose": "services:\n  stirling-pdf:\n    image: stirlingtools/stirling-pdf:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - DOCKER_ENABLE_SECURITY={{ENABLE_LOGIN}}\n      - SECURITY_ENABLELOGIN={{ENABLE_LOGIN}}\n    volumes:\n      - stirling_data:/configs\n      - stirling_logs:/logs\n      - stirling_training:/usr/share/tessdata\n      - stirling_custom:/customFiles\n    healthcheck:\n      test: [\"CMD-SHELL\", \"curl -f http://localhost:8080/api/v1/info/status || exit 1\"]\n      interval: 30s\n      timeout: 10s\n      retries: 5\n      start_period: 60s\n    restart: unless-stopped\n\nvolumes:\n  stirling_data:\n  stirling_logs:\n  stirling_training:\n  stirling_custom:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ENABLE_LOGIN",
+          "description": "Enable user authentication (true/false)",
+          "required": false,
+          "default": "false",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "8080"
+        },
+        {
+          "name": "ENABLE_LOGIN",
+          "description": "Enable authentication",
+          "default": "false"
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Stirling PDF\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Stirling PDF\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Enable login if exposing to the internet\n- All PDF processing happens server-side\n- No external API calls are made",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Start using PDF tools (merge, split, convert, OCR, etc.)\n3. Optionally enable authentication for multi-user access"
+    },
+    {
+      "id": "builtin-it-tools",
+      "name": "IT-Tools",
+      "description": "Collection of handy developer tools: encoders, converters, generators, hash tools",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "category": "development",
+      "icon": "🧰",
+      "minMemoryMB": 128,
+      "recommendedPort": 8080,
+      "compose": "services:\n  it-tools:\n    image: corentinth/it-tools:latest\n    ports:\n      - \"{{PORT}}:80\"\n    restart: unless-stopped\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "8080"
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to IT-Tools\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access IT-Tools\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- All processing happens in the browser (client-side)\n- No data is sent to external servers\n- Safe to expose without authentication",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Browse available tools: encoders, converters, generators, etc.\n3. All processing is done locally in the browser"
+    },
+    {
+      "id": "builtin-open-webui",
+      "name": "Open WebUI",
+      "description": "ChatGPT-like interface for local LLMs via Ollama or remote AI providers",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "category": "development",
+      "icon": "💬",
+      "minMemoryMB": 512,
+      "recommendedPort": 3000,
+      "compose": "services:\n  open-webui:\n    image: ghcr.io/open-webui/open-webui:main\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - OLLAMA_BASE_URL={{OLLAMA_URL}}\n      - WEBUI_SECRET_KEY={{SECRET_KEY}}\n      - ENABLE_SIGNUP=true\n    volumes:\n      - open_webui_data:/app/backend/data\n    extra_hosts:\n      - \"host.docker.internal:host-gateway\"\n    restart: unless-stopped\n\nvolumes:\n  open_webui_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "OLLAMA_URL",
+          "description": "URL of your Ollama instance (leave default for same host)",
+          "required": false,
+          "default": "http://host.docker.internal:11434",
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Secret key for session encryption",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "3000"
+        },
+        {
+          "name": "OLLAMA_URL",
+          "description": "Ollama URL",
+          "default": "http://host.docker.internal:11434"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Session secret",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Open WebUI\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Open WebUI\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- First user to register becomes admin\n- Uses embedded SQLite (no external database needed)\n- Configure Ollama URL if running on a different host",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Register the first account (becomes admin)\n3. Ensure Ollama is running on the host or configure a remote Ollama URL\n4. Start chatting with your local LLMs"
+    },
+    {
+      "id": "builtin-dify",
+      "name": "Dify",
+      "description": "Open-source LLM app development platform for building AI workflows and chatbots",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "category": "development",
+      "icon": "🧠",
+      "minMemoryMB": 4096,
+      "recommendedPort": 80,
+      "compose": "services:\n  api:\n    image: langgenius/dify-api:latest\n    environment:\n      - MODE=api\n      - SECRET_KEY={{SECRET_KEY}}\n      - DB_USERNAME=postgres\n      - DB_PASSWORD={{DB_PASSWORD}}\n      - DB_HOST=db\n      - DB_PORT=5432\n      - DB_DATABASE=dify\n      - REDIS_HOST=redis\n      - REDIS_PORT=6379\n      - STORAGE_TYPE=local\n      - STORAGE_LOCAL_PATH=/app/api/storage\n      - VECTOR_STORE=weaviate\n      - WEAVIATE_ENDPOINT=http://weaviate:8080\n      - SANDBOX_API_KEY={{SANDBOX_KEY}}\n      - SANDBOX_HOST=http://sandbox:8194\n    volumes:\n      - dify_storage:/app/api/storage\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n      redis:\n        condition: service_started\n\n  worker:\n    image: langgenius/dify-api:latest\n    environment:\n      - MODE=worker\n      - SECRET_KEY={{SECRET_KEY}}\n      - DB_USERNAME=postgres\n      - DB_PASSWORD={{DB_PASSWORD}}\n      - DB_HOST=db\n      - DB_PORT=5432\n      - DB_DATABASE=dify\n      - REDIS_HOST=redis\n      - REDIS_PORT=6379\n      - STORAGE_TYPE=local\n      - STORAGE_LOCAL_PATH=/app/api/storage\n      - VECTOR_STORE=weaviate\n      - WEAVIATE_ENDPOINT=http://weaviate:8080\n    volumes:\n      - dify_storage:/app/api/storage\n    restart: unless-stopped\n    depends_on:\n      - api\n\n  web:\n    image: langgenius/dify-web:latest\n    environment:\n      - CONSOLE_API_URL=\n      - APP_API_URL=\n    restart: unless-stopped\n\n  nginx:\n    image: nginx:latest\n    ports:\n      - \"{{PORT}}:80\"\n    entrypoint: sh\n    command:\n      - -c\n      - |\n        cat > /etc/nginx/conf.d/default.conf << 'CONF'\n        server {\n          listen 80;\n          client_max_body_size 15M;\n          location /api { proxy_pass http://api:5001; proxy_set_header Host $$host; proxy_set_header X-Real-IP $$remote_addr; }\n          location /console/api { proxy_pass http://api:5001; proxy_set_header Host $$host; }\n          location /v1 { proxy_pass http://api:5001; proxy_set_header Host $$host; }\n          location /files { proxy_pass http://api:5001; proxy_set_header Host $$host; }\n          location / { proxy_pass http://web:3000; proxy_set_header Host $$host; }\n        }\n        CONF\n        nginx -g 'daemon off;'\n    restart: unless-stopped\n    depends_on:\n      - api\n      - web\n\n  db:\n    image: postgres:15-alpine\n    environment:\n      - POSTGRES_USER=postgres\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=dify\n    volumes:\n      - dify_db:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U postgres -d dify\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n\n  redis:\n    image: redis:6-alpine\n    volumes:\n      - dify_redis:/data\n    restart: unless-stopped\n\n  weaviate:\n    image: semitechnologies/weaviate:1.27.0\n    environment:\n      - QUERY_DEFAULTS_LIMIT=25\n      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true\n      - PERSISTENCE_DATA_PATH=/var/lib/weaviate\n      - DEFAULT_VECTORIZER_MODULE=none\n      - CLUSTER_HOSTNAME=node1\n    volumes:\n      - dify_weaviate:/var/lib/weaviate\n    restart: unless-stopped\n\n  sandbox:\n    image: langgenius/dify-sandbox:latest\n    environment:\n      - API_KEY={{SANDBOX_KEY}}\n      - GIN_MODE=release\n    restart: unless-stopped\n\nvolumes:\n  dify_storage:\n  dify_db:\n  dify_redis:\n  dify_weaviate:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SECRET_KEY",
+          "description": "Application secret key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "PostgreSQL password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "SANDBOX_KEY",
+          "description": "Sandbox service API key",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "80"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "App secret",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        },
+        {
+          "name": "SANDBOX_KEY",
+          "description": "Sandbox key",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Dify\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Dify\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Requires minimum 4GB RAM\n- Keep all secret keys secure\n- Users configure their own LLM API keys in the UI\n- The sandbox runs user code in isolation",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Create an admin account\n3. Configure your AI model providers (OpenAI, Anthropic, etc.)\n4. Build your first AI workflow or chatbot"
+    },
+    {
+      "id": "builtin-penpot",
+      "name": "Penpot",
+      "description": "Open-source design and prototyping platform, alternative to Figma",
+      "parentCategory": "development",
+      "subCategory": "devtools",
+      "category": "development",
+      "icon": "🎨",
+      "minMemoryMB": 2048,
+      "recommendedPort": 9001,
+      "compose": "services:\n  penpot-frontend:\n    image: penpotapp/frontend:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - PENPOT_FLAGS=disable-registration enable-login disable-email-verification\n      - PENPOT_BACKEND_URI=http://penpot-backend:6060\n      - PENPOT_EXPORTER_URI=http://penpot-exporter:6061\n    restart: unless-stopped\n    depends_on:\n      - penpot-backend\n      - penpot-exporter\n\n  penpot-backend:\n    image: penpotapp/backend:latest\n    environment:\n      - PENPOT_FLAGS=disable-registration enable-login disable-email-verification disable-secure-session-cookies\n      - PENPOT_SECRET_KEY={{SECRET_KEY}}\n      - PENPOT_PUBLIC_URI=http://localhost:{{PORT}}\n      - PENPOT_DATABASE_URI=postgresql://penpot-postgres/penpot\n      - PENPOT_DATABASE_USERNAME=penpot\n      - PENPOT_DATABASE_PASSWORD={{DB_PASSWORD}}\n      - PENPOT_REDIS_URI=redis://penpot-valkey/0\n      - PENPOT_OBJECTS_STORAGE_BACKEND=fs\n      - PENPOT_OBJECTS_STORAGE_FS_DIRECTORY=/opt/data/assets\n    volumes:\n      - penpot_assets:/opt/data/assets\n    restart: unless-stopped\n    depends_on:\n      penpot-postgres:\n        condition: service_healthy\n      penpot-valkey:\n        condition: service_started\n\n  penpot-exporter:\n    image: penpotapp/exporter:latest\n    environment:\n      - PENPOT_PUBLIC_URI=http://penpot-frontend:8080\n      - PENPOT_REDIS_URI=redis://penpot-valkey/0\n    restart: unless-stopped\n\n  penpot-postgres:\n    image: postgres:15-alpine\n    environment:\n      - POSTGRES_INITDB_ARGS=--data-checksums\n      - POSTGRES_DB=penpot\n      - POSTGRES_USER=penpot\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - penpot_db:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U penpot -d penpot\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n\n  penpot-valkey:\n    image: valkey/valkey:8.1-alpine\n    restart: unless-stopped\n\nvolumes:\n  penpot_assets:\n  penpot_db:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SECRET_KEY",
+          "description": "Session and crypto master key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "PostgreSQL password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "9001"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Master secret key",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Penpot\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Penpot\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Registration is disabled by default; enable via PENPOT_FLAGS\n- Use HTTPS in production\n- Keep database credentials secure",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Register the first user account\n3. Create your first design project\n4. Invite team members for collaboration"
+    },
+    {
+      "id": "builtin-saltcorn",
+      "name": "Saltcorn",
+      "description": "Open-source no-code application builder with database, views, and workflows",
+      "parentCategory": "development",
+      "subCategory": "nocode",
+      "category": "development",
+      "icon": "🧂",
+      "minMemoryMB": 512,
+      "recommendedPort": 3000,
+      "compose": "services:\n  saltcorn:\n    image: saltcorn/saltcorn:latest\n    ports:\n      - \"{{PORT}}:3000\"\n    environment:\n      - SALTCORN_SESSION_SECRET={{SESSION_SECRET}}\n      - PGHOST=db\n      - PGUSER=saltcorn\n      - PGDATABASE=saltcorn\n      - PGPASSWORD={{DB_PASSWORD}}\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=saltcorn\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=saltcorn\n    volumes:\n      - saltcorn_db:/var/lib/postgresql/data\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"pg_isready -U saltcorn -d saltcorn\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n\nvolumes:\n  saltcorn_db:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SESSION_SECRET",
+          "description": "Session cookie encryption secret",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "PostgreSQL password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "3000"
+        },
+        {
+          "name": "SESSION_SECRET",
+          "description": "Session secret",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "Database password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Saltcorn\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Saltcorn\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Set a strong admin password on first run\n- Keep database credentials secure\n- Use HTTPS in production",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Complete the initial setup wizard\n3. Create your first table and views\n4. Build your no-code application"
+    }
+  ]
+}

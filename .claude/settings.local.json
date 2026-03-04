@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell -Command \"Get-ItemProperty -Path ''HKLM:\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\AppModelUnlock'' -Name ''AllowDevelopmentWithoutDevLicense'' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty AllowDevelopmentWithoutDevLicense\")",
+      "Bash(npm install --save-dev sharp png-to-ico)",
+      "Bash(node -e \":*)",
+      "Bash(npm run build)",
+      "Bash(powershell -Command \"Remove-Item -Recurse -Force ''C:\\\\Users\\\\kensi\\\\Desktop\\\\output_folder\\\\release''\")",
+      "Bash(node -e \"const d=require\\(''fs''\\).readFileSync\\(''/dev/stdin'',''utf8''\\);const p=JSON.parse\\(d\\);console.log\\(''scripts:'',JSON.stringify\\(p.scripts,null,2\\)\\);console.log\\(''binary:'',JSON.stringify\\(p.binary,null,2\\)\\);\")",
+      "Bash(node -e \"const p=require\\(''./node_modules/better-sqlite3/package.json''\\);console.log\\(''scripts:'',JSON.stringify\\(p.scripts,null,2\\)\\);console.log\\(''binary:'',JSON.stringify\\(p.binary,null,2\\)\\);\")",
+      "Bash(node -e \"const p=require\\(''./node_modules/better-sqlite3/package.json''\\);console.log\\(JSON.stringify\\({install:p.install,scripts:p.scripts,gypfile:p.gypfile,dependencies:p.dependencies},null,2\\)\\);\")",
+      "Bash(npx @electron/rebuild -v 38.8.4 -m .)",
+      "Bash(npx @electron/rebuild -v 38.8.4 -m . --force)",
+      "Bash(npx prebuild-install --runtime electron --target 38.8.4 --arch x64 --verbose -p better-sqlite3)",
+      "Bash(npx prebuild-install --runtime electron --target 38.8.4 --arch x64 --verbose)",
+      "Bash(where sqlite3)"
+    ]
+  }
+}

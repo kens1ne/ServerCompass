@@ -1,0 +1,56 @@
+name: Deploy to VPS - {{APP_NAME}}
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Only deploy if the push is to the configured branch
+    if: github.ref == 'refs/heads/{{BRANCH}}'
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST_{{APP_NAME_UPPER}} }}
+          username: ${{ secrets.VPS_USER_{{APP_NAME_UPPER}} }}
+          key: ${{ secrets.VPS_SSH_KEY_{{APP_NAME_UPPER}} }}
+          port: ${{ secrets.VPS_PORT_{{APP_NAME_UPPER}} }}
+          script: |
+            set -e
+            echo "🚀 Starting deployment for {{APP_NAME}}..."
+
+            # Navigate to app directory
+            cd {{WORKING_DIRECTORY}}
+
+            # Fetch and reset to latest
+            echo "📥 Fetching latest code from {{BRANCH}}..."
+            git fetch origin {{BRANCH}}
+            git reset --hard origin/{{BRANCH}}
+
+            # Show current commit
+            echo "📝 Deploying commit: $(git rev-parse --short HEAD) - $(git log -1 --pretty=%B)"
+
+            # Install dependencies
+            echo "📦 Installing dependencies..."
+            {{INSTALL_COMMAND}}
+
+            # Build application
+            echo "🔨 Building application..."
+            {{BUILD_COMMAND}}
+
+            # Reload PM2 process
+            echo "♻️  Reloading PM2 process..."
+            pm2 reload {{APP_NAME}} || pm2 restart {{APP_NAME}} || {
+              echo "⚠️  PM2 process not found, starting new process..."
+              pm2 start npm --name "{{APP_NAME}}" -- start
+            }
+
+            # Save PM2 configuration
+            pm2 save --force
+
+            echo "✅ Deployment completed successfully at $(date)"
+            echo "📊 PM2 Status:"
+            pm2 info {{APP_NAME}} --no-daemon

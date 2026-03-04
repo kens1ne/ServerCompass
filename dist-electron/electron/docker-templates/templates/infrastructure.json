@@ -1,0 +1,1183 @@
+{
+  "parentCategory": "infrastructure",
+  "templates": [
+    {
+      "id": "builtin-grafana",
+      "name": "Grafana",
+      "description": "Open-source analytics and monitoring platform",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "📊",
+      "minMemoryMB": 256,
+      "recommendedPort": 3000,
+      "compose": "services:\n  grafana:\n    image: grafana/grafana:latest\n    ports:\n      - \"{{PORT}}:3000\"\n    environment:\n      - GF_SECURITY_ADMIN_USER={{ADMIN_USER}}\n      - GF_SECURITY_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - GF_USERS_ALLOW_SIGN_UP=false\n    volumes:\n      - grafana_data:/var/lib/grafana\n    restart: unless-stopped\n\nvolumes:\n  grafana_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ADMIN_USER",
+          "description": "Admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string"
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3000"
+        },
+        {
+          "name": "ADMIN_USER",
+          "description": "Admin user",
+          "default": "admin"
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Use strong admin password",
+      "postDeploymentSteps": "1. Log in with admin credentials\n2. Add data sources (Prometheus, InfluxDB, etc.)\n3. Create dashboards"
+    },
+    {
+      "id": "builtin-prometheus",
+      "name": "Prometheus",
+      "description": "Time-series monitoring and alerting system",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "🔥",
+      "minMemoryMB": 512,
+      "recommendedPort": 9090,
+      "compose": "services:\n  prometheus:\n    image: prom/prometheus:latest\n    ports:\n      - \"{{PORT}}:9090\"\n    command:\n      - '--config.file=/etc/prometheus/prometheus.yml'\n      - '--storage.tsdb.path=/prometheus'\n      - '--web.enable-lifecycle'\n    volumes:\n      - prometheus_data:/prometheus\n      - prometheus_config:/etc/prometheus\n    restart: unless-stopped\n\nvolumes:\n  prometheus_data:\n  prometheus_config:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "9090"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "No authentication by default. Use reverse proxy with auth.",
+      "postDeploymentSteps": "1. Create prometheus.yml configuration\n2. Add scrape targets\n3. Configure alerting rules"
+    },
+    {
+      "id": "builtin-uptime-kuma",
+      "name": "Uptime Kuma",
+      "description": "Self-hosted monitoring tool like Uptime Robot",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "📈",
+      "minMemoryMB": 256,
+      "recommendedPort": 3001,
+      "compose": "services:\n  uptime-kuma:\n    image: louislam/uptime-kuma:latest\n    ports:\n      - \"{{PORT}}:3001\"\n    volumes:\n      - uptime_kuma_data:/app/data\n    restart: unless-stopped\n\nvolumes:\n  uptime_kuma_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3001"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create admin account on first access",
+      "postDeploymentSteps": "1. Create admin account\n2. Add monitors for your services\n3. Configure notifications"
+    },
+    {
+      "id": "builtin-netdata",
+      "name": "Netdata",
+      "description": "Real-time performance monitoring",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "📉",
+      "minMemoryMB": 256,
+      "recommendedPort": 19999,
+      "compose": "services:\n  netdata:\n    image: netdata/netdata:latest\n    ports:\n      - \"{{PORT}}:19999\"\n    cap_add:\n      - SYS_PTRACE\n    security_opt:\n      - apparmor:unconfined\n    volumes:\n      - netdata_config:/etc/netdata\n      - netdata_lib:/var/lib/netdata\n      - netdata_cache:/var/cache/netdata\n      - /etc/passwd:/host/etc/passwd:ro\n      - /etc/group:/host/etc/group:ro\n      - /proc:/host/proc:ro\n      - /sys:/host/sys:ro\n      - /etc/os-release:/host/etc/os-release:ro\n    restart: unless-stopped\n\nvolumes:\n  netdata_config:\n  netdata_lib:\n  netdata_cache:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "19999"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Netdata has full host visibility. Restrict access to trusted users.",
+      "postDeploymentSteps": "1. Access dashboard\n2. Configure alerts\n3. Set up cloud sync (optional)"
+    },
+    {
+      "id": "builtin-glitchtip",
+      "name": "GlitchTip",
+      "description": "Open-source error tracking (Sentry alternative)",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "🐛",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8000,
+      "compose": "services:\n  glitchtip:\n    image: glitchtip/glitchtip:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - DATABASE_URL=postgres://glitchtip:{{DB_PASSWORD}}@db:5432/glitchtip\n      - SECRET_KEY={{SECRET_KEY}}\n      - GLITCHTIP_DOMAIN={{DOMAIN}}\n      - DEFAULT_FROM_EMAIL=noreply@example.com\n      - REDIS_URL=redis://redis:6379\n    restart: unless-stopped\n    depends_on:\n      - db\n      - redis\n\n  worker:\n    image: glitchtip/glitchtip:latest\n    command: ./bin/run-celery-with-beat.sh\n    environment:\n      - DATABASE_URL=postgres://glitchtip:{{DB_PASSWORD}}@db:5432/glitchtip\n      - SECRET_KEY={{SECRET_KEY}}\n      - REDIS_URL=redis://redis:6379\n    restart: unless-stopped\n    depends_on:\n      - db\n      - redis\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=glitchtip\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=glitchtip\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\n  redis:\n    image: redis:7-alpine\n    restart: unless-stopped\n\nvolumes:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DOMAIN",
+          "description": "Public domain",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Django secret key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8000"
+        },
+        {
+          "name": "DOMAIN",
+          "description": "Domain (must start with http:// or https://)",
+          "default": "http://localhost"
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Secret key",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create superuser after deployment",
+      "postDeploymentSteps": "1. Run migrations\n2. Create superuser\n3. Create organization and project"
+    },
+    {
+      "id": "builtin-mailu",
+      "name": "Mailu",
+      "description": "Full-featured mail server with webmail",
+      "parentCategory": "infrastructure",
+      "subCategory": "email",
+      "category": "infrastructure",
+      "icon": "📧",
+      "minMemoryMB": 2048,
+      "recommendedPort": 80,
+      "compose": "services:\n  front:\n    image: ghcr.io/mailu/nginx:2024.06\n    ports:\n      - \"{{PORT}}:80\"\n      - \"{{HTTPS_PORT}}:443\"\n      - \"{{SMTP_PORT}}:25\"\n      - \"{{IMAP_PORT}}:143\"\n      - \"{{SUBMISSION_PORT}}:587\"\n    environment:\n      - TZ={{TIMEZONE}}\n    volumes:\n      - mailu_certs:/certs\n      - mailu_overrides:/overrides\n    restart: unless-stopped\n    depends_on:\n      - admin\n      - imap\n      - smtp\n\n  admin:\n    image: ghcr.io/mailu/admin:2024.06\n    environment:\n      - SECRET_KEY={{SECRET_KEY}}\n      - DOMAIN={{DOMAIN}}\n      - HOSTNAMES={{HOSTNAMES}}\n      - TZ={{TIMEZONE}}\n    volumes:\n      - mailu_data:/data\n      - mailu_dkim:/dkim\n    restart: unless-stopped\n    depends_on:\n      - redis\n\n  imap:\n    image: ghcr.io/mailu/dovecot:2024.06\n    environment:\n      - TZ={{TIMEZONE}}\n    volumes:\n      - mailu_mail:/mail\n      - mailu_overrides:/overrides\n    restart: unless-stopped\n\n  smtp:\n    image: ghcr.io/mailu/postfix:2024.06\n    environment:\n      - TZ={{TIMEZONE}}\n    volumes:\n      - mailu_overrides:/overrides\n    restart: unless-stopped\n\n  redis:\n    image: redis:7-alpine\n    volumes:\n      - mailu_redis:/data\n    restart: unless-stopped\n\nvolumes:\n  mailu_certs:\n  mailu_overrides:\n  mailu_data:\n  mailu_dkim:\n  mailu_mail:\n  mailu_redis:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DOMAIN",
+          "description": "Primary mail domain",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "HOSTNAMES",
+          "description": "Mail server hostname",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Secret key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "TIMEZONE",
+          "description": "Timezone",
+          "required": false,
+          "default": "UTC",
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP port",
+          "default": "80"
+        },
+        {
+          "name": "HTTPS_PORT",
+          "description": "HTTPS port",
+          "default": "443"
+        },
+        {
+          "name": "SMTP_PORT",
+          "description": "SMTP port",
+          "default": "25"
+        },
+        {
+          "name": "IMAP_PORT",
+          "description": "IMAP port",
+          "default": "143"
+        },
+        {
+          "name": "SUBMISSION_PORT",
+          "description": "Submission port",
+          "default": "587"
+        },
+        {
+          "name": "DOMAIN",
+          "description": "Mail domain",
+          "default": ""
+        },
+        {
+          "name": "HOSTNAMES",
+          "description": "Hostname",
+          "default": ""
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Secret key",
+          "default": ""
+        },
+        {
+          "name": "TIMEZONE",
+          "description": "Timezone",
+          "default": "UTC"
+        }
+      ],
+      "externalAccessInstructions": "Admin: http://YOUR_SERVER_IP:{{PORT}}/admin\nWebmail: http://YOUR_SERVER_IP:{{PORT}}/webmail",
+      "securityNotes": "Requires DNS configuration (MX, SPF, DKIM, DMARC records)",
+      "postDeploymentSteps": "1. Configure DNS records\n2. Create admin account\n3. Add mail domains"
+    },
+    {
+      "id": "builtin-postal",
+      "name": "Postal",
+      "description": "Mail delivery platform for sending transactional emails",
+      "parentCategory": "infrastructure",
+      "subCategory": "email",
+      "category": "infrastructure",
+      "icon": "✉️",
+      "minMemoryMB": 2048,
+      "recommendedPort": 5000,
+      "compose": "services:\n  postal:\n    image: ghcr.io/postalserver/postal:3.3.4\n    ports:\n      - \"{{PORT}}:5000\"\n      - \"{{SMTP_PORT}}:25\"\n    environment:\n      - POSTAL_FNAME=Postal\n      - POSTAL_LNAME=Admin\n      - POSTAL_EMAIL=admin@example.com\n      - MAIN_DB_HOST=mysql\n      - MAIN_DB_USERNAME=root\n      - MAIN_DB_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MESSAGE_DB_HOST=mysql\n      - MESSAGE_DB_USERNAME=root\n      - MESSAGE_DB_PASSWORD={{DB_ROOT_PASSWORD}}\n      - RABBITMQ_HOST=rabbitmq\n    volumes:\n      - postal_config:/config\n      - postal_storage:/storage\n    restart: unless-stopped\n    depends_on:\n      - mysql\n      - rabbitmq\n\n  mysql:\n    image: mariadb:10.11\n    environment:\n      - MYSQL_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MYSQL_DATABASE=postal\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: unless-stopped\n\n  rabbitmq:\n    image: rabbitmq:3-management\n    restart: unless-stopped\n\nvolumes:\n  postal_config:\n  postal_storage:\n  mysql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "MariaDB root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Web port",
+          "default": "5000"
+        },
+        {
+          "name": "SMTP_PORT",
+          "description": "SMTP port",
+          "default": "25"
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Requires initial setup with postal initialize command",
+      "postDeploymentSteps": "1. Run postal initialize\n2. Create admin user\n3. Configure DNS records"
+    },
+    {
+      "id": "builtin-nextcloud",
+      "name": "Nextcloud",
+      "description": "Self-hosted file sync and collaboration platform",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "☁️",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8080,
+      "compose": "services:\n  nextcloud:\n    image: nextcloud:latest\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - MYSQL_HOST=db\n      - MYSQL_DATABASE=nextcloud\n      - MYSQL_USER=nextcloud\n      - MYSQL_PASSWORD={{DB_PASSWORD}}\n      - NEXTCLOUD_ADMIN_USER={{ADMIN_USER}}\n      - NEXTCLOUD_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - NEXTCLOUD_TRUSTED_DOMAINS={{TRUSTED_DOMAINS}}\n    volumes:\n      - nextcloud_data:/var/www/html\n    restart: unless-stopped\n    depends_on:\n      db:\n        condition: service_healthy\n\n  db:\n    image: mysql:8.0\n    environment:\n      - MYSQL_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MYSQL_DATABASE=nextcloud\n      - MYSQL_USER=nextcloud\n      - MYSQL_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: unless-stopped\n    healthcheck:\n      test: [\"CMD-SHELL\", \"mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD || exit 1\"]\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 30s\n\nvolumes:\n  nextcloud_data:\n  mysql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ADMIN_USER",
+          "description": "Admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string",
+          "installTimeOnly": true
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "TRUSTED_DOMAINS",
+          "description": "Trusted domains (space-separated)",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8080"
+        },
+        {
+          "name": "ADMIN_USER",
+          "description": "Admin user",
+          "default": "admin"
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        },
+        {
+          "name": "TRUSTED_DOMAINS",
+          "description": "Trusted domains",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Add your domain to trusted domains. Use HTTPS in production.",
+      "postDeploymentSteps": "1. Log in with admin credentials\n2. Install recommended apps\n3. Configure external storage"
+    },
+    {
+      "id": "builtin-minio",
+      "name": "MinIO",
+      "description": "S3-compatible object storage",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "🗄️",
+      "minMemoryMB": 256,
+      "recommendedPort": 9000,
+      "compose": "services:\n  minio:\n    image: minio/minio:latest\n    ports:\n      - \"{{PORT}}:9000\"\n      - \"{{CONSOLE_PORT}}:9001\"\n    environment:\n      - MINIO_ROOT_USER={{ROOT_USER}}\n      - MINIO_ROOT_PASSWORD={{ROOT_PASSWORD}}\n    command: server /data --console-address \":9001\"\n    volumes:\n      - minio_data:/data\n    restart: unless-stopped\n\nvolumes:\n  minio_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "ROOT_USER",
+          "description": "Root username",
+          "required": true,
+          "default": "minioadmin",
+          "type": "string"
+        },
+        {
+          "key": "ROOT_PASSWORD",
+          "description": "Root password (8+ chars)",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "API port",
+          "default": "9000"
+        },
+        {
+          "name": "CONSOLE_PORT",
+          "description": "Console port",
+          "default": "9001"
+        },
+        {
+          "name": "ROOT_USER",
+          "description": "Root user",
+          "default": "minioadmin"
+        },
+        {
+          "name": "ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Console: http://YOUR_SERVER_IP:{{CONSOLE_PORT}}\nAPI: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Use strong root password (8+ chars). Use HTTPS in production.",
+      "postDeploymentSteps": "1. Access console\n2. Create buckets\n3. Configure access policies"
+    },
+    {
+      "id": "builtin-immich",
+      "name": "Immich",
+      "description": "Self-hosted photo and video backup (Google Photos alternative)",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "📷",
+      "minMemoryMB": 4096,
+      "recommendedPort": 2283,
+      "compose": "services:\n  immich-server:\n    image: ghcr.io/immich-app/immich-server:release\n    ports:\n      - \"{{PORT}}:2283\"\n    environment:\n      - DB_HOSTNAME=db\n      - DB_USERNAME=immich\n      - DB_PASSWORD={{DB_PASSWORD}}\n      - DB_DATABASE_NAME=immich\n      - REDIS_HOSTNAME=redis\n    volumes:\n      - immich_upload:/usr/src/app/upload\n      - /etc/localtime:/etc/localtime:ro\n    restart: unless-stopped\n    depends_on:\n      - db\n      - redis\n\n  immich-machine-learning:\n    image: ghcr.io/immich-app/immich-machine-learning:release\n    volumes:\n      - immich_model_cache:/cache\n    restart: unless-stopped\n\n  db:\n    image: tensorchord/pgvecto-rs:pg16-v0.2.1\n    environment:\n      - POSTGRES_USER=immich\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=immich\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\n  redis:\n    image: redis:7-alpine\n    restart: unless-stopped\n\nvolumes:\n  immich_upload:\n  immich_model_cache:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "2283"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Requires 4GB+ RAM for ML features",
+      "postDeploymentSteps": "1. Create admin account\n2. Install mobile app\n3. Configure backup settings"
+    },
+    {
+      "id": "builtin-photoprism",
+      "name": "PhotoPrism",
+      "description": "AI-powered photo management",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "🖼️",
+      "minMemoryMB": 2048,
+      "recommendedPort": 2342,
+      "compose": "services:\n  photoprism:\n    image: photoprism/photoprism:latest\n    ports:\n      - \"{{PORT}}:2342\"\n    environment:\n      - PHOTOPRISM_ADMIN_USER={{ADMIN_USER}}\n      - PHOTOPRISM_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - PHOTOPRISM_SITE_URL={{SITE_URL}}\n      - PHOTOPRISM_DATABASE_DRIVER=mysql\n      - PHOTOPRISM_DATABASE_SERVER=db:3306\n      - PHOTOPRISM_DATABASE_NAME=photoprism\n      - PHOTOPRISM_DATABASE_USER=photoprism\n      - PHOTOPRISM_DATABASE_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - photoprism_originals:/photoprism/originals\n      - photoprism_storage:/photoprism/storage\n    restart: unless-stopped\n    depends_on:\n      - db\n\n  db:\n    image: mariadb:10.11\n    environment:\n      - MARIADB_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MARIADB_DATABASE=photoprism\n      - MARIADB_USER=photoprism\n      - MARIADB_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - mariadb_data:/var/lib/mysql\n    restart: unless-stopped\n\nvolumes:\n  photoprism_originals:\n  photoprism_storage:\n  mariadb_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SITE_URL",
+          "description": "Public URL",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "ADMIN_USER",
+          "description": "Admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string",
+          "installTimeOnly": true
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "2342"
+        },
+        {
+          "name": "SITE_URL",
+          "description": "Site URL",
+          "default": ""
+        },
+        {
+          "name": "ADMIN_USER",
+          "description": "Admin user",
+          "default": "admin"
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Initial indexing can take hours for large libraries",
+      "postDeploymentSteps": "1. Log in with admin credentials\n2. Upload or mount photos\n3. Run initial indexing"
+    },
+    {
+      "id": "builtin-syncthing",
+      "name": "Syncthing",
+      "description": "Continuous file synchronization between devices",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "🔄",
+      "minMemoryMB": 128,
+      "recommendedPort": 8384,
+      "compose": "services:\n  syncthing:\n    image: lscr.io/linuxserver/syncthing:latest\n    ports:\n      - \"{{PORT}}:8384\"\n      - \"22000:22000/tcp\"\n      - \"22000:22000/udp\"\n      - \"21027:21027/udp\"\n    environment:\n      - PUID=1000\n      - PGID=1000\n    volumes:\n      - syncthing_config:/config\n    restart: unless-stopped\n\nvolumes:\n  syncthing_config:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Web UI port",
+          "default": "8384"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Set up GUI password after first access",
+      "postDeploymentSteps": "1. Access web UI\n2. Set up GUI password\n3. Add devices and folders to sync"
+    },
+    {
+      "id": "builtin-paperless",
+      "name": "Paperless-ngx",
+      "description": "Document management system with OCR",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "📄",
+      "minMemoryMB": 1024,
+      "recommendedPort": 8000,
+      "compose": "services:\n  paperless:\n    image: ghcr.io/paperless-ngx/paperless-ngx:latest\n    ports:\n      - \"{{PORT}}:8000\"\n    environment:\n      - PAPERLESS_REDIS=redis://redis:6379\n      - PAPERLESS_DBHOST=db\n      - PAPERLESS_DBNAME=paperless\n      - PAPERLESS_DBUSER=paperless\n      - PAPERLESS_DBPASS={{DB_PASSWORD}}\n      - PAPERLESS_SECRET_KEY={{SECRET_KEY}}\n      - PAPERLESS_URL={{PAPERLESS_URL}}\n    volumes:\n      - paperless_data:/usr/src/paperless/data\n      - paperless_media:/usr/src/paperless/media\n      - paperless_consume:/usr/src/paperless/consume\n    restart: unless-stopped\n    depends_on:\n      - db\n      - redis\n\n  db:\n    image: postgres:16-alpine\n    environment:\n      - POSTGRES_USER=paperless\n      - POSTGRES_PASSWORD={{DB_PASSWORD}}\n      - POSTGRES_DB=paperless\n    volumes:\n      - postgres_data:/var/lib/postgresql/data\n    restart: unless-stopped\n\n  redis:\n    image: redis:7-alpine\n    restart: unless-stopped\n\nvolumes:\n  paperless_data:\n  paperless_media:\n  paperless_consume:\n  postgres_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "PAPERLESS_URL",
+          "description": "Public URL",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "SECRET_KEY",
+          "description": "Django secret key",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8000"
+        },
+        {
+          "name": "PAPERLESS_URL",
+          "description": "Public URL",
+          "default": ""
+        },
+        {
+          "name": "SECRET_KEY",
+          "description": "Secret key",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create superuser: docker exec paperless python manage.py createsuperuser",
+      "postDeploymentSteps": "1. Create superuser\n2. Upload documents\n3. Configure consumption folder"
+    },
+    {
+      "id": "builtin-loki",
+      "name": "Loki",
+      "description": "Log aggregation system by Grafana",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "📜",
+      "minMemoryMB": 512,
+      "recommendedPort": 3100,
+      "compose": "services:\n  loki:\n    image: grafana/loki:latest\n    ports:\n      - \"{{PORT}}:3100\"\n    command: -config.file=/etc/loki/local-config.yaml\n    volumes:\n      - loki_data:/loki\n    restart: unless-stopped\n\n  promtail:\n    image: grafana/promtail:latest\n    volumes:\n      - /var/log:/var/log:ro\n      - promtail_config:/etc/promtail\n    restart: unless-stopped\n    depends_on:\n      - loki\n\nvolumes:\n  loki_data:\n  promtail_config:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "3100"
+        }
+      ],
+      "externalAccessInstructions": "API: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "No authentication by default. Use reverse proxy with auth.",
+      "postDeploymentSteps": "1. Configure Promtail\n2. Add Loki as Grafana data source\n3. Create log dashboards"
+    },
+    {
+      "id": "builtin-signoz",
+      "name": "SigNoz",
+      "description": "Open-source APM and observability platform",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "📊",
+      "minMemoryMB": 4096,
+      "recommendedPort": 3301,
+      "compose": "services:\n  signoz:\n    image: signoz/signoz:latest\n    ports:\n      - \"{{PORT}}:3301\"\n    environment:\n      - SIGNOZ_WEB_URL={{WEB_URL}}\n    volumes:\n      - signoz_data:/var/lib/signoz\n    restart: unless-stopped\n    depends_on:\n      - clickhouse\n\n  clickhouse:\n    image: clickhouse/clickhouse-server:latest\n    volumes:\n      - clickhouse_data:/var/lib/clickhouse\n    restart: unless-stopped\n\nvolumes:\n  signoz_data:\n  clickhouse_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "WEB_URL",
+          "description": "Public URL",
+          "required": true,
+          "type": "string"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Web UI port",
+          "default": "3301"
+        },
+        {
+          "name": "WEB_URL",
+          "description": "Web URL",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "SigNoz requires significant resources",
+      "postDeploymentSteps": "1. Create admin account\n2. Configure data sources\n3. Set up instrumentation"
+    },
+    {
+      "id": "builtin-mailcow",
+      "name": "Mailcow",
+      "description": "Full-featured mail server with webmail",
+      "parentCategory": "infrastructure",
+      "subCategory": "email",
+      "category": "infrastructure",
+      "icon": "📬",
+      "minMemoryMB": 4096,
+      "recommendedPort": 443,
+      "compose": "services:\n  nginx:\n    image: ghcr.io/mailcow/nginx:1.03\n    ports:\n      - \"{{PORT}}:443\"\n      - \"{{HTTP_PORT}}:80\"\n    restart: unless-stopped\n    depends_on:\n      - php-fpm\n\n  php-fpm:\n    image: ghcr.io/mailcow/phpfpm:1.92\n    environment:\n      - DBNAME=mailcow\n      - DBUSER=mailcow\n      - DBPASS={{DB_PASSWORD}}\n    restart: unless-stopped\n    depends_on:\n      - mysql\n      - redis\n\n  mysql:\n    image: mariadb:11\n    environment:\n      - MARIADB_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MARIADB_DATABASE=mailcow\n      - MARIADB_USER=mailcow\n      - MARIADB_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: unless-stopped\n\n  redis:\n    image: redis:7-alpine\n    restart: unless-stopped\n\n  dovecot:\n    image: ghcr.io/mailcow/dovecot:1.30\n    restart: unless-stopped\n\n  postfix:\n    image: ghcr.io/mailcow/postfix:1.77\n    ports:\n      - \"25:25\"\n      - \"465:465\"\n      - \"587:587\"\n    restart: unless-stopped\n\nvolumes:\n  mysql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTPS port",
+          "default": "443"
+        },
+        {
+          "name": "HTTP_PORT",
+          "description": "HTTP port",
+          "default": "80"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: https://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Configure DNS records (MX, SPF, DKIM, DMARC)",
+      "postDeploymentSteps": "1. Configure DNS records\n2. Add domains\n3. Create mailboxes"
+    },
+    {
+      "id": "builtin-filestash",
+      "name": "Filestash",
+      "description": "Web-based file manager with S3, SFTP, FTP support",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "📂",
+      "minMemoryMB": 256,
+      "recommendedPort": 8334,
+      "compose": "services:\n  filestash:\n    image: machines/filestash:latest\n    ports:\n      - \"{{PORT}}:8334\"\n    volumes:\n      - filestash_data:/app/data/state\n    restart: unless-stopped\n\nvolumes:\n  filestash_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8334"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Configure backends and authentication in admin",
+      "postDeploymentSteps": "1. Access admin interface\n2. Configure backends (S3, SFTP, etc.)\n3. Set up authentication"
+    },
+    {
+      "id": "builtin-owncloud",
+      "name": "ownCloud",
+      "description": "File sync and share platform",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "☁️",
+      "minMemoryMB": 512,
+      "recommendedPort": 8080,
+      "compose": "services:\n  owncloud:\n    image: owncloud/server:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    environment:\n      - OWNCLOUD_DOMAIN={{DOMAIN}}\n      - OWNCLOUD_DB_TYPE=mysql\n      - OWNCLOUD_DB_HOST=db\n      - OWNCLOUD_DB_NAME=owncloud\n      - OWNCLOUD_DB_USERNAME=owncloud\n      - OWNCLOUD_DB_PASSWORD={{DB_PASSWORD}}\n      - OWNCLOUD_ADMIN_USERNAME={{ADMIN_USER}}\n      - OWNCLOUD_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - OWNCLOUD_REDIS_ENABLED=true\n      - OWNCLOUD_REDIS_HOST=redis\n    volumes:\n      - owncloud_data:/mnt/data\n    restart: unless-stopped\n    depends_on:\n      - db\n      - redis\n\n  db:\n    image: mariadb:11\n    environment:\n      - MARIADB_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n      - MARIADB_DATABASE=owncloud\n      - MARIADB_USER=owncloud\n      - MARIADB_PASSWORD={{DB_PASSWORD}}\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: unless-stopped\n\n  redis:\n    image: redis:7-alpine\n    restart: unless-stopped\n\nvolumes:\n  owncloud_data:\n  mysql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "DOMAIN",
+          "description": "Public domain",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "ADMIN_USER",
+          "description": "Admin username",
+          "required": true,
+          "default": "admin",
+          "type": "string",
+          "installTimeOnly": true
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        },
+        {
+          "key": "DB_PASSWORD",
+          "description": "Database password",
+          "required": true,
+          "type": "secret"
+        },
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8080"
+        },
+        {
+          "name": "DOMAIN",
+          "description": "Domain",
+          "default": ""
+        },
+        {
+          "name": "ADMIN_USER",
+          "description": "Admin user",
+          "default": "admin"
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        },
+        {
+          "name": "DB_PASSWORD",
+          "description": "DB password",
+          "default": ""
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "Root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Use HTTPS in production",
+      "postDeploymentSteps": "1. Login with admin credentials\n2. Install apps\n3. Configure sharing"
+    },
+    {
+      "id": "builtin-archivebox",
+      "name": "ArchiveBox",
+      "description": "Self-hosted internet archiving tool",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "📦",
+      "minMemoryMB": 512,
+      "recommendedPort": 8000,
+      "compose": "services:\n  archivebox:\n    image: archivebox/archivebox:latest\n    ports:\n      - \"{{PORT}}:8000\"\n    environment:\n      - ALLOWED_HOSTS=*\n      - PUBLIC_INDEX=True\n      - PUBLIC_SNAPSHOTS=True\n      - PUBLIC_ADD_VIEW=False\n    volumes:\n      - archivebox_data:/data\n    restart: unless-stopped\n\nvolumes:\n  archivebox_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "8000"
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Create admin: docker exec archivebox archivebox manage createsuperuser",
+      "postDeploymentSteps": "1. Create admin user\n2. Add URLs to archive\n3. Configure archiving options"
+    },
+    {
+      "id": "builtin-picoshare",
+      "name": "PicoShare",
+      "description": "Minimalist file sharing service",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "📤",
+      "minMemoryMB": 64,
+      "recommendedPort": 4001,
+      "compose": "services:\n  picoshare:\n    image: mtlynch/picoshare:latest\n    ports:\n      - \"{{PORT}}:4001\"\n    environment:\n      - PS_SHARED_SECRET={{SHARED_SECRET}}\n    volumes:\n      - picoshare_data:/data\n    restart: unless-stopped\n\nvolumes:\n  picoshare_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "SHARED_SECRET",
+          "description": "Admin access secret",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "4001"
+        },
+        {
+          "name": "SHARED_SECRET",
+          "description": "Shared secret",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Use shared secret for admin access",
+      "postDeploymentSteps": "1. Access with shared secret\n2. Upload files\n3. Share links"
+    },
+    {
+      "id": "builtin-seafile",
+      "name": "Seafile",
+      "description": "File sync and share with versioning",
+      "parentCategory": "infrastructure",
+      "subCategory": "storage",
+      "category": "infrastructure",
+      "icon": "🌊",
+      "minMemoryMB": 1024,
+      "recommendedPort": 80,
+      "compose": "services:\n  seafile:\n    image: seafileltd/seafile-mc:latest\n    ports:\n      - \"{{PORT}}:80\"\n    environment:\n      - DB_HOST=db\n      - DB_ROOT_PASSWD={{DB_ROOT_PASSWORD}}\n      - SEAFILE_ADMIN_EMAIL={{ADMIN_EMAIL}}\n      - SEAFILE_ADMIN_PASSWORD={{ADMIN_PASSWORD}}\n      - SEAFILE_SERVER_HOSTNAME={{HOSTNAME}}\n    volumes:\n      - seafile_data:/shared\n    restart: unless-stopped\n    depends_on:\n      - db\n      - memcached\n\n  db:\n    image: mariadb:11\n    environment:\n      - MARIADB_ROOT_PASSWORD={{DB_ROOT_PASSWORD}}\n    volumes:\n      - mysql_data:/var/lib/mysql\n    restart: unless-stopped\n\n  memcached:\n    image: memcached:latest\n    restart: unless-stopped\n\nvolumes:\n  seafile_data:\n  mysql_data:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "HOSTNAME",
+          "description": "Server hostname",
+          "required": true,
+          "type": "string"
+        },
+        {
+          "key": "ADMIN_EMAIL",
+          "description": "Admin email",
+          "required": true,
+          "type": "string",
+          "installTimeOnly": true
+        },
+        {
+          "key": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "required": true,
+          "type": "secret",
+          "installTimeOnly": true
+        },
+        {
+          "key": "DB_ROOT_PASSWORD",
+          "description": "MySQL root password",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port",
+          "default": "80"
+        },
+        {
+          "name": "HOSTNAME",
+          "description": "Hostname",
+          "default": ""
+        },
+        {
+          "name": "ADMIN_EMAIL",
+          "description": "Admin email",
+          "default": ""
+        },
+        {
+          "name": "ADMIN_PASSWORD",
+          "description": "Admin password",
+          "default": ""
+        },
+        {
+          "name": "DB_ROOT_PASSWORD",
+          "description": "DB root password",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "Visit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Configure HTTPS for production",
+      "postDeploymentSteps": "1. Login with admin credentials\n2. Create libraries\n3. Install sync clients"
+    },
+    {
+      "id": "builtin-k0s",
+      "name": "k0s",
+      "description": "Zero-friction Kubernetes distribution",
+      "parentCategory": "infrastructure",
+      "subCategory": "containers",
+      "category": "infrastructure",
+      "icon": "☸️",
+      "minMemoryMB": 2048,
+      "recommendedPort": 6443,
+      "compose": "services:\n  k0s:\n    image: docker.io/k0sproject/k0s:latest\n    command: k0s controller --config=/etc/k0s/k0s.yaml\n    ports:\n      - \"{{PORT}}:6443\"\n      - \"{{KUBE_PORT}}:9443\"\n    volumes:\n      - k0s_data:/var/lib/k0s\n      - /var/run/docker.sock:/var/run/docker.sock\n    privileged: true\n    restart: unless-stopped\n\nvolumes:\n  k0s_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "API server port",
+          "default": "6443"
+        },
+        {
+          "name": "KUBE_PORT",
+          "description": "Kube API port",
+          "default": "9443"
+        }
+      ],
+      "externalAccessInstructions": "API: https://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Run in privileged mode. Generate kubeconfig for access.",
+      "postDeploymentSteps": "1. Get kubeconfig\n2. Configure kubectl\n3. Deploy workloads"
+    },
+    {
+      "id": "builtin-nomad",
+      "name": "Nomad",
+      "description": "HashiCorp workload orchestrator",
+      "parentCategory": "infrastructure",
+      "subCategory": "containers",
+      "category": "infrastructure",
+      "icon": "🎯",
+      "minMemoryMB": 512,
+      "recommendedPort": 4646,
+      "compose": "services:\n  nomad:\n    image: hashicorp/nomad:1.7.7\n    command: agent -dev -bind=0.0.0.0\n    ports:\n      - \"{{PORT}}:4646\"\n      - \"{{RPC_PORT}}:4647\"\n      - \"{{SERF_PORT}}:4648\"\n    environment:\n      - NOMAD_SKIP_DOCKER_IMAGE_WARN=true\n    volumes:\n      - nomad_data:/nomad/data\n      - /var/run/docker.sock:/var/run/docker.sock\n    privileged: true\n    restart: unless-stopped\n\nvolumes:\n  nomad_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP API port",
+          "default": "4646"
+        },
+        {
+          "name": "RPC_PORT",
+          "description": "RPC port",
+          "default": "4647"
+        },
+        {
+          "name": "SERF_PORT",
+          "description": "Serf port",
+          "default": "4648"
+        }
+      ],
+      "externalAccessInstructions": "UI: http://YOUR_SERVER_IP:{{PORT}}/ui",
+      "securityNotes": "Dev mode has no ACLs. Configure for production.",
+      "postDeploymentSteps": "1. Access Nomad UI\n2. Submit jobs\n3. Configure ACLs for production"
+    },
+    {
+      "id": "builtin-rancher",
+      "name": "Rancher",
+      "description": "Kubernetes management platform",
+      "parentCategory": "infrastructure",
+      "subCategory": "containers",
+      "category": "infrastructure",
+      "icon": "🐮",
+      "minMemoryMB": 4096,
+      "recommendedPort": 443,
+      "compose": "services:\n  rancher:\n    image: rancher/rancher:latest\n    ports:\n      - \"{{PORT}}:443\"\n      - \"{{HTTP_PORT}}:80\"\n    volumes:\n      - rancher_data:/var/lib/rancher\n    privileged: true\n    restart: unless-stopped\n\nvolumes:\n  rancher_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTPS port",
+          "default": "443"
+        },
+        {
+          "name": "HTTP_PORT",
+          "description": "HTTP port",
+          "default": "80"
+        }
+      ],
+      "externalAccessInstructions": "Visit: https://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "Get bootstrap password: docker logs CONTAINER 2>&1 | grep 'Bootstrap Password'",
+      "postDeploymentSteps": "1. Get bootstrap password from logs\n2. Set admin password\n3. Add Kubernetes clusters"
+    },
+    {
+      "id": "builtin-changedetection",
+      "name": "Changedetection.io",
+      "description": "Self-hosted website change detection and monitoring with notifications",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "👁️",
+      "minMemoryMB": 256,
+      "recommendedPort": 5000,
+      "compose": "services:\n  changedetection:\n    image: dgtlmoon/changedetection.io:latest\n    ports:\n      - \"{{PORT}}:5000\"\n    environment:\n      - TZ=UTC\n      - BASE_URL=http://localhost:{{PORT}}\n    volumes:\n      - changedetection_data:/datastore\n    restart: unless-stopped\n\nvolumes:\n  changedetection_data:\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "5000"
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Changedetection.io\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Changedetection.io\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Set a password in the application settings after first login\n- Uses file-based storage (no external database)\n- For JavaScript-rendered pages, add the Playwright browser sidecar",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Add your first website URL to monitor\n3. Configure notification settings (email, Discord, Slack, etc.)\n4. Set check intervals for each watched page"
+    },
+    {
+      "id": "builtin-dozzle",
+      "name": "Dozzle",
+      "description": "Real-time Docker container log viewer with search and filtering",
+      "parentCategory": "infrastructure",
+      "subCategory": "containers",
+      "category": "infrastructure",
+      "icon": "📋",
+      "minMemoryMB": 128,
+      "recommendedPort": 8080,
+      "compose": "services:\n  dozzle:\n    image: amir20/dozzle:latest\n    ports:\n      - \"{{PORT}}:8080\"\n    volumes:\n      - /var/run/docker.sock:/var/run/docker.sock:ro\n    restart: unless-stopped\n",
+      "dockerfile": null,
+      "envHints": [],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "Host port to expose",
+          "default": "8080"
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Dozzle\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Dozzle\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Docker socket is mounted read-only for security\n- Consider adding authentication if exposed to the internet\n- Dozzle only reads logs, it cannot modify containers by default",
+      "postDeploymentSteps": "1. Visit the application URL\n2. View real-time logs from all running Docker containers\n3. Use search and filtering to find specific log entries"
+    },
+    {
+      "id": "builtin-speedtest-tracker",
+      "name": "Speedtest Tracker",
+      "description": "Track and graph internet speed history with automatic scheduled tests",
+      "parentCategory": "infrastructure",
+      "subCategory": "monitoring",
+      "category": "infrastructure",
+      "icon": "📶",
+      "minMemoryMB": 256,
+      "recommendedPort": 8080,
+      "compose": "services:\n  speedtest:\n    image: ghcr.io/alexjustesen/speedtest-tracker:latest\n    ports:\n      - \"{{PORT}}:80\"\n      - \"{{HTTPS_PORT}}:443\"\n    environment:\n      - PUID=1000\n      - PGID=1000\n      - APP_KEY={{APP_KEY}}\n      - APP_URL=http://localhost:{{PORT}}\n      - SPEEDTEST_SCHEDULE=*/30 * * * *\n      - APP_TIMEZONE=UTC\n      - DB_CONNECTION=sqlite\n    volumes:\n      - speedtest_config:/config\n    restart: unless-stopped\n\nvolumes:\n  speedtest_config:\n",
+      "dockerfile": null,
+      "envHints": [
+        {
+          "key": "APP_KEY",
+          "description": "Application encryption key (base64 encoded)",
+          "required": true,
+          "type": "secret"
+        }
+      ],
+      "variables": [
+        {
+          "name": "PORT",
+          "description": "HTTP port to expose",
+          "default": "8080"
+        },
+        {
+          "name": "HTTPS_PORT",
+          "description": "HTTPS port to expose",
+          "default": "8443"
+        },
+        {
+          "name": "APP_KEY",
+          "description": "Encryption key",
+          "default": ""
+        }
+      ],
+      "externalAccessInstructions": "# Allow External Access to Speedtest Tracker\n\n## On your VPS\n\n1. Allow the port through firewall:\n```bash\nsudo ufw allow {{PORT}}/tcp\nsudo ufw reload\n```\n\n## Access Speedtest Tracker\n\nVisit: http://YOUR_SERVER_IP:{{PORT}}",
+      "securityNotes": "- Uses embedded SQLite by default\n- Speed tests run every 30 minutes by default\n- Keep APP_KEY secure",
+      "postDeploymentSteps": "1. Visit the application URL\n2. Log in with admin@example.com / password\n3. Change the default password immediately\n4. Configure speed test schedule and notification settings"
+    }
+  ]
+}

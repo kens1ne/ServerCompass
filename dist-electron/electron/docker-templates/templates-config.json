@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "_IMPORTANT_READ_BEFORE_EDITING": "ALWAYS read docs/common-errors/traefik_skip_unhealthy_check.md, docs/common-errors/container_name_conflicts.md, and electron/docker-templates/README.md before adding or editing templates!",
+  "_healthcheck_policy": "NEVER add wget/curl healthchecks to web apps (minimal images lack these tools → unhealthy containers → Traefik filters them out → 404 errors). ONLY add healthchecks to databases using native tools (pg_isready, mysqladmin, redis-cli). For multi-service stacks, use depends_on with condition: service_healthy to ensure databases start before web apps.",
+  "_password_generation": "Generated passwords are URL-safe by default (alphanumeric only) because many templates embed secrets in connection strings (postgres://user:pass@host/db) and some upstream apps do not percent-encode correctly. Secrets that explicitly require hex are generated as hex based on the envHint description (e.g. \"64 hex chars\") and well-known key names (OPENSSL_KEY, ENCRYPTION_KEY). See electron/ipc/docker-stacks.ts:generateSecretForHint().",
+  "_project_name_uniqueness": "CRITICAL: Project names must be GLOBALLY UNIQUE per server. Before deployment, ServerCompass checks for existing Docker containers with pattern '{projectName}-*'. If found, deployment is blocked to prevent volume reuse issues. MySQL/PostgreSQL only initialize passwords on FIRST startup - reusing old volumes causes 'Access denied' errors because new passwords in .env are ignored. Solution: Use unique project names (e.g., 'ghost-blog' instead of 'ghost') or completely remove old containers first with 'docker compose down -v'. See docs/common-errors/container_name_conflicts.md for details.",
+  "templateFiles": [
+    "templates/database.json",
+    "templates/application.json",
+    "templates/development.json",
+    "templates/infrastructure.json"
+  ],
+  "categoryHierarchy": {
+    "database": {
+      "label": "Database",
+      "icon": "database",
+      "color": "blue",
+      "subCategories": [
+        { "id": "sql", "label": "SQL" },
+        { "id": "nosql", "label": "NoSQL" },
+        { "id": "specialized", "label": "Specialized" }
+      ]
+    },
+    "application": {
+      "label": "Application",
+      "icon": "app-window",
+      "color": "violet",
+      "subCategories": [
+        { "id": "cms", "label": "CMS" },
+        { "id": "crm", "label": "CRM/ERP" },
+        { "id": "ecommerce", "label": "E-commerce" },
+        { "id": "media", "label": "Media" },
+        { "id": "forum", "label": "Forum" },
+        { "id": "calendar", "label": "Calendar" },
+        { "id": "analytics", "label": "Analytics" },
+        { "id": "notes", "label": "Notes" },
+        { "id": "pm", "label": "Project Management" },
+        { "id": "chat", "label": "Live Chat" },
+        { "id": "invoicing", "label": "Invoicing" },
+        { "id": "docs", "label": "Documentation" },
+        { "id": "search", "label": "Search" },
+        { "id": "email-marketing", "label": "Email Marketing" },
+        { "id": "feedback", "label": "Product Feedback" },
+        { "id": "bi", "label": "Business Intelligence" },
+        { "id": "password", "label": "Password Manager" },
+        { "id": "support", "label": "Customer Support" },
+        { "id": "fediverse", "label": "Fediverse" },
+        { "id": "automation", "label": "Automation" },
+        { "id": "hrms", "label": "HCM/HRMS" }
+      ]
+    },
+    "development": {
+      "label": "Development",
+      "icon": "code",
+      "color": "emerald",
+      "subCategories": [
+        { "id": "baas", "label": "BaaS" },
+        { "id": "nocode", "label": "NoCode" },
+        { "id": "devtools", "label": "Dev Tools" },
+        { "id": "frameworks", "label": "Frameworks" },
+        { "id": "iam", "label": "Identity & Access" },
+        { "id": "network", "label": "Network" },
+        { "id": "devops", "label": "DevOps" }
+      ]
+    },
+    "infrastructure": {
+      "label": "Infrastructure",
+      "icon": "server",
+      "color": "amber",
+      "subCategories": [
+        { "id": "email", "label": "Email" },
+        { "id": "monitoring", "label": "Monitoring" },
+        { "id": "storage", "label": "Storage" },
+        { "id": "containers", "label": "Containers" }
+      ]
+    }
+  }
+}
