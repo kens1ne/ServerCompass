@@ -28,7 +28,7 @@ jobs:
       - name: Build DMG
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npm run build:mac
+        run: npm run build:mac -- --publish=never
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
