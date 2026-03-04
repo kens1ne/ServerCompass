@@ -15,7 +15,9 @@
   "scripts": {
     "dev": "electron .",
     "build": "electron-builder --win",
-    "build:dir": "electron-builder --win --dir"
+    "build:dir": "electron-builder --win --dir",
+    "build:mac": "electron-builder --mac dmg",
+    "build:mac:dir": "electron-builder --mac --dir"
   },
   "build": {
     "appId": "com.stoicsoft.servercompass",
@@ -35,10 +37,23 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
     },
     "asarUnpack": [
       "node_modules/better-sqlite3/**",
