@@ -108,24 +108,9 @@ class LemonSqueezyService {
    * @throws Error if deactivation fails
    */
   async deactivateLicense(licenseKey, instanceId) {
-    const response = await fetch(
-      `${LemonSqueezyService.BASE_URL}/v1/licenses/deactivate`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          license_key: licenseKey,
-          instance_id: instanceId,
-        }),
-      },
-    );
-    if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || "License deactivation failed");
-    }
+    // OFFLINE mode - skip API call
+    console.log("[LemonSqueezy] Deactivate skipped (offline mode)", { licenseKey, instanceId });
+    return;
   }
   /**
    * Validate that license belongs to our product
